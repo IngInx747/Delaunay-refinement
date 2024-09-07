@@ -72,9 +72,9 @@ static int make_delaunay(TriMesh &mesh, Eh eh)
         mesh.edge_handle(mesh.prev_halfedge_handle(mesh.halfedge_handle(eh, 1)))
     };
 
-    delaunifier.reset(); delaunifier.to_flip(ehs, 4); int n_flip {};
+    delaunifier.reset(); delaunifier.enqueue(ehs, 4); int n_flip {};
 
-    for (auto eh = delaunifier.flip(); eh.is_valid() && n_flip < max_n_flip; eh = delaunifier.flip(), ++n_flip) {}
+    for (Eh eh = delaunifier.flip(); eh.is_valid() && n_flip < max_n_flip; eh = delaunifier.flip(), ++n_flip) {}
 
     return n_flip;
 }
@@ -104,11 +104,9 @@ static inline void split_face(TriMesh &mesh, Fh fh, Vh vh)
 
 static inline Fh search_triangle(const TriMesh &mesh, const Vec2 &u, Fh fh = Fh {})
 {
-    if (!fh.is_valid()) fh = mesh.face_handle(0);
+    if (!fh.is_valid()) for (Fh fi : mesh.faces()) { fh = fi; break; }
 
-    fh = search_triangle_guided_bfs(mesh, u, fh);
-
-    if (!fh.is_valid()) fh = search_triangle_brute_force(mesh, u);
+    fh = search_triangle_straight_way(mesh, u, fh);
 
     return fh;
 }
@@ -204,8 +202,8 @@ static int insert_vertices(TriMesh &mesh, std::unordered_map<Vh, Vh> &dups)
                 ehs[ne++] = hdge.next().edge();
 
         // maintain Delaunay
-        delaunifier.reset(); delaunifier.to_flip(ehs, ne); int n_flip {};
-        for (auto eh = delaunifier.flip(); eh.is_valid() && n_flip < max_n_flip; eh = delaunifier.flip(), ++n_flip) {}
+        delaunifier.reset(); delaunifier.enqueue(ehs, ne); int n_flip {};
+        for (Eh eh = delaunifier.flip(); eh.is_valid() && n_flip < max_n_flip; eh = delaunifier.flip(), ++n_flip) {}
 
         ++n_new_vertices;
     }
@@ -235,7 +233,6 @@ static inline int intersection_info(const TriMesh &mesh, const Vec2 &u0, const V
         (ru0 * ru1 < 0) && (rv1 == 0 && rv0 != 0) ? ON_VERTEX : // v1 lies on (u0,u1)
         (ru0 != 0 && ru1 == 0) && (rv1 == 0)      ? ON_VERTEX : // v1 overlaps u1
         NO_ITSC; // no intersecting, overlapping, v0 lies on (u0,u1), and other cases
-        // BUG: no branch for u1 being reached
 }
 
 static inline double intersection_param(const TriMesh &mesh, const Vec2 &u0, const Vec2 &u1, Hh hh)
@@ -326,9 +323,8 @@ static int get_intersections(TriMesh &mesh, Vh vh0, Vh vh1, std::vector<Hh> &hhs
         {
             status = next_intersection(mesh, u0, u1, vhc, hhc, vhc);
         }
-        else // search in vain, for some reasons
+        else // searching lost in vain, for some reasons
         {
-            //printf("searching segment (%d, %d) lost on the way\n", vh0.idx()+1, vh1.idx()+1);
             break;
         }
 
@@ -352,7 +348,6 @@ static int get_intersections(TriMesh &mesh, Vh vh0, Vh vh1, std::vector<Hh> &hhs
 
     if (iter >= max_num_iter)
     {
-        //printf("searching segment (%d, %d) reached maximum iteration\n", vh0.idx()+1, vh1.idx()+1);
         return NO_ITSC;
     }
 

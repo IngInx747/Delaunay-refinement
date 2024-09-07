@@ -100,21 +100,40 @@ template <class MeshT, class DelaunayT>
 class Delaunifier
 {
 public:
+
     Delaunifier(MeshT &mesh, const DelaunayT &is_delaunay)
     : mesh(mesh), is_delaunay(is_delaunay) {}
 
+    /// Clear all enqueued edges
     void reset();
 
-    void to_flip();
-    void to_flip(const Eh[], const int);
+    /// Enqueue all edges in the mesh
+    void enqueue();
 
+    /// Enqueue specific edges
+    void enqueue(const Eh[], const int);
+
+    /// Enqueue edges that conform a custom rule
+    template <class PredicateT> void enqueue(const PredicateT&);
+
+    /// Test Delaunayhood (and flip) one edge at a time.
+    Eh next();
+
+    /// Keep testing Delaunayhood until an edge is flipped.
+    /// The flipped edge or a null handle will be returned.
     Eh flip();
 
-    size_t n_enqueued() const { return frontier.size(); }
+    size_t size() const { return frontier.size(); }
 
 protected:
+
+    void enqueue_adjacent(const Eh&);
+
+protected:
+
     MeshT &mesh;
     const DelaunayT &is_delaunay;
+
     std::deque<Eh> frontier;
     std::unordered_set<Eh> enqueued;
 };
@@ -127,21 +146,19 @@ inline void Delaunifier<MeshT, DelaunayT>::reset()
 }
 
 template <class MeshT, class DelaunayT>
-inline void Delaunifier<MeshT, DelaunayT>::to_flip()
+inline void Delaunifier<MeshT, DelaunayT>::enqueue()
 {
-    for (auto edge : mesh.edges())
-    if (!edge.is_boundary())
+    for (Eh eh : mesh.edges()) if (!enqueued.count(eh))
     {
-        frontier.push_back(edge);
-        enqueued.insert(edge);
+        frontier.push_back(eh);
+        enqueued.insert(eh);
     }
 }
 
 template <class MeshT, class DelaunayT>
-inline void Delaunifier<MeshT, DelaunayT>::to_flip(const Eh ehs[], const int ne)
+inline void Delaunifier<MeshT, DelaunayT>::enqueue(const Eh ehs[], const int ne)
 {
-    for (int i = 0; i < ne; ++i)
-    if (!mesh.is_boundary(ehs[i]))
+    for (int i = 0; i < ne; ++i) if (!enqueued.count(ehs[i]))
     {
         frontier.push_back(ehs[i]);
         enqueued.insert(ehs[i]);
@@ -149,36 +166,72 @@ inline void Delaunifier<MeshT, DelaunayT>::to_flip(const Eh ehs[], const int ne)
 }
 
 template <class MeshT, class DelaunayT>
+template <class PredicateT>
+inline void Delaunifier<MeshT, DelaunayT>::enqueue(const PredicateT &predicate)
+{
+    for (Eh eh : mesh.edges())
+    if (!enqueued.count(eh))
+    if (predicate(mesh, eh))
+    {
+        frontier.push_back(eh);
+        enqueued.insert(eh);
+    }
+}
+
+template <class MeshT, class DelaunayT>
+inline void Delaunifier<MeshT, DelaunayT>::enqueue_adjacent(const Eh &eh_base)
+{
+    const Eh ehs[4] {
+        mesh.edge_handle(mesh.next_halfedge_handle(mesh.halfedge_handle(eh_base, 0))),
+        mesh.edge_handle(mesh.prev_halfedge_handle(mesh.halfedge_handle(eh_base, 0))),
+        mesh.edge_handle(mesh.next_halfedge_handle(mesh.halfedge_handle(eh_base, 1))),
+        mesh.edge_handle(mesh.prev_halfedge_handle(mesh.halfedge_handle(eh_base, 1)))
+    };
+
+    for (const Eh &eh : ehs) if (!enqueued.count(eh))
+    {
+        frontier.push_back(eh);
+        enqueued.insert(eh);
+    }
+}
+
+template <class MeshT, class DelaunayT>
+inline Eh Delaunifier<MeshT, DelaunayT>::next()
+{
+    if (frontier.empty()) return Eh {};
+
+    Eh eh = frontier.front();
+    frontier.pop_front();
+    enqueued.erase(eh);
+
+    if (mesh.is_boundary(eh))  return eh;
+    if (is_delaunay(mesh, eh)) return eh;
+
+    OpenMesh::flip(mesh, eh);
+    enqueue_adjacent(eh);
+
+    return eh;
+}
+
+template <class MeshT, class DelaunayT>
 inline Eh Delaunifier<MeshT, DelaunayT>::flip()
 {
     while (!frontier.empty())
     {
-        auto ehf = frontier.front(); frontier.pop_front();
-        enqueued.erase(ehf);
+        Eh eh = frontier.front();
+        frontier.pop_front();
+        enqueued.erase(eh);
 
-        if (is_delaunay(mesh, ehf)) continue;
+        if (mesh.is_boundary(eh))  continue;
+        if (is_delaunay(mesh, eh)) continue;
 
-        OpenMesh::flip(mesh, ehf);
+        OpenMesh::flip(mesh, eh);
+        enqueue_adjacent(eh);
 
-        const Eh ehs[4] {
-            mesh.edge_handle(mesh.next_halfedge_handle(mesh.halfedge_handle(ehf, 0))),
-            mesh.edge_handle(mesh.prev_halfedge_handle(mesh.halfedge_handle(ehf, 0))),
-            mesh.edge_handle(mesh.next_halfedge_handle(mesh.halfedge_handle(ehf, 1))),
-            mesh.edge_handle(mesh.prev_halfedge_handle(mesh.halfedge_handle(ehf, 1)))
-        };
-
-        for (const auto &eh : ehs)
-        if (!mesh.is_boundary(eh))
-        if (!enqueued.count(eh))
-        {
-            frontier.push_back(eh);
-            enqueued.insert(eh);
-        }
-
-        return ehf;
+        return eh;
     }
 
-    return mesh.InvalidEdgeHandle;
+    return Eh {};
 }
 
 template <class MeshT, class DelaunayT>

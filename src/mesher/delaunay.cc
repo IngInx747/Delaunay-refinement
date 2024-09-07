@@ -32,7 +32,7 @@ int make_delaunay(TriMesh &mesh)
 
     const int max_num_edge_flip = (int)mesh.n_faces() * 50;
 
-    delaunifier.reset(); delaunifier.to_flip(); int n_flip {};
+    delaunifier.reset(); delaunifier.enqueue(); int n_flip {};
 
     for (auto hdge = delaunifier.flip(); hdge.is_valid() && n_flip < max_num_edge_flip; hdge = delaunifier.flip(), ++n_flip) {}
 

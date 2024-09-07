@@ -1,3 +1,5 @@
+#include "math_def.hh"
+#include "mesh.hh"
 #include "mesher.hh"
 #include "mesh.io.hh"
 
@@ -63,6 +65,8 @@ int main(const int argc, const char **argv)
     std::string filename, prefix, path;
     if (argc < 2) { printf("No file provided.\n"); return 1; }
 
+    double min_angle = 26.0;
+
     filename.append(argv[1]);
     prefix = filename.substr(0, filename.find_last_of("."));
     path = filename.substr(0, filename.find_last_of("/\\"));
@@ -83,6 +87,10 @@ int main(const int argc, const char **argv)
 
     hide_exterior_region(mesh, ss);
     save_mesh(mesh, (prefix + ".CDT.mesh").c_str());
+
+    err = refine(mesh, radian(min_angle));
+    save_mesh(mesh, (prefix + ".refined.mesh").c_str());
+    if (err) { printf("Refinement failed.\n"); return err; }
 
     return err;
 }
