@@ -30,11 +30,22 @@ int make_delaunay(TriMesh &mesh)
 {
     auto delaunifier = make_delaunifier(mesh, EuclideanDelaunay {});
 
-    const int max_num_edge_flip = (int)mesh.n_faces() * 50;
+    const int max_n_flip = (int)mesh.n_edges() * 50;
 
-    delaunifier.reset(); delaunifier.enqueue(); int n_flip {};
+    delaunifier.reset(); delaunifier.enqueue_all(); int n_flip {};
 
-    for (auto hdge = delaunifier.flip(); hdge.is_valid() && n_flip < max_num_edge_flip; hdge = delaunifier.flip(), ++n_flip) {}
+#if 1 // non-stop flipping until Delaunayhood is met
+    n_flip = delaunifier.flip_all(max_n_flip);
+
+#elif 1 // test Delaunayhood while checking each flipped edge
+    for (Eh eh = delaunifier.flip(); eh.is_valid() && n_flip < max_n_flip; eh = delaunifier.flip(), ++n_flip)
+    {} // do something each flipping
+
+#else // test Delaunayhood while checking each encountered edge
+    for (Eh eh = delaunifier.next(); eh.is_valid() && n_flip < max_n_flip; eh = delaunifier.next(), ++n_flip)
+    {} // do something each checking
+
+#endif
 
     return n_flip;
 }

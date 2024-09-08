@@ -72,9 +72,9 @@ static int make_delaunay(TriMesh &mesh, Eh eh)
         mesh.edge_handle(mesh.prev_halfedge_handle(mesh.halfedge_handle(eh, 1)))
     };
 
-    delaunifier.reset(); delaunifier.enqueue(ehs, 4); int n_flip {};
+    delaunifier.reset(); delaunifier.enqueue(ehs, 4);
 
-    for (Eh eh = delaunifier.flip(); eh.is_valid() && n_flip < max_n_flip; eh = delaunifier.flip(), ++n_flip) {}
+    int n_flip = delaunifier.flip_all(max_n_flip);
 
     return n_flip;
 }
@@ -202,8 +202,8 @@ static int insert_vertices(TriMesh &mesh, std::unordered_map<Vh, Vh> &dups)
                 ehs[ne++] = hdge.next().edge();
 
         // maintain Delaunay
-        delaunifier.reset(); delaunifier.enqueue(ehs, ne); int n_flip {};
-        for (Eh eh = delaunifier.flip(); eh.is_valid() && n_flip < max_n_flip; eh = delaunifier.flip(), ++n_flip) {}
+        delaunifier.reset(); delaunifier.enqueue(ehs, ne);
+        int n_flip = delaunifier.flip_all(max_n_flip);
 
         ++n_new_vertices;
     }

@@ -108,7 +108,7 @@ public:
     void reset();
 
     /// Enqueue all edges in the mesh
-    void enqueue();
+    void enqueue_all();
 
     /// Enqueue specific edges
     void enqueue(const Eh[], const int);
@@ -122,6 +122,11 @@ public:
     /// Keep testing Delaunayhood until an edge is flipped.
     /// The flipped edge or a null handle will be returned.
     Eh flip();
+
+    // Keep testing Delaunayhood and flipping non-Delaunay
+    // edges until no more edges to flip or it exceeds the 
+    // maxinum number of flippings.
+    int flip_all(const int max_n_flip);
 
     size_t size() const { return frontier.size(); }
 
@@ -146,7 +151,7 @@ inline void Delaunifier<MeshT, DelaunayT>::reset()
 }
 
 template <class MeshT, class DelaunayT>
-inline void Delaunifier<MeshT, DelaunayT>::enqueue()
+inline void Delaunifier<MeshT, DelaunayT>::enqueue_all()
 {
     for (Eh eh : mesh.edges()) if (!enqueued.count(eh))
     {
@@ -232,6 +237,28 @@ inline Eh Delaunifier<MeshT, DelaunayT>::flip()
     }
 
     return Eh {};
+}
+
+template <class MeshT, class DelaunayT>
+inline int Delaunifier<MeshT, DelaunayT>::flip_all(const int max_n_flip)
+{
+    int n_flip {};
+
+    for ( ; !frontier.empty() && n_flip < max_n_flip; )
+    {
+        Eh eh = frontier.front();
+        frontier.pop_front();
+        enqueued.erase(eh);
+
+        if (mesh.is_boundary(eh))  continue;
+        if (is_delaunay(mesh, eh)) continue;
+
+        OpenMesh::flip(mesh, eh);
+        enqueue_adjacent(eh);
+        ++n_flip;
+    }
+
+    return n_flip;
 }
 
 template <class MeshT, class DelaunayT>
