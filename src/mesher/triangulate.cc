@@ -14,7 +14,7 @@ using namespace OpenMesh;
 /// Locations
 ////////////////////////////////////////////////////////////////
 
-static inline TRI_LOC locate(TriMesh &mesh, const Fh &fh, const Vec2 &u, Hh &hh)
+static inline TRI_LOC locate(const TriMesh &mesh, const Fh &fh, const Vec2 &u, Hh &hh)
 {
     constexpr double kEps = 1e-3;
     const auto hh0 = mesh.halfedge_handle(fh);
@@ -80,7 +80,7 @@ static int make_delaunay(TriMesh &mesh, Eh eh)
 }
 
 ////////////////////////////////////////////////////////////////
-/// Insertion
+/// Utilities
 ////////////////////////////////////////////////////////////////
 
 static inline void split_edge(TriMesh &mesh, Hh hh, Vh vh)
@@ -110,6 +110,10 @@ static inline Fh search_triangle(const TriMesh &mesh, const Vec2 &u, Fh fh = Fh 
 
     return fh;
 }
+
+////////////////////////////////////////////////////////////////
+/// Incremental triangulation
+////////////////////////////////////////////////////////////////
 
 static inline void add_points(TriMesh &mesh, const std::vector<Vec2> &vs)
 {
@@ -242,7 +246,7 @@ static inline double intersection_param(const TriMesh &mesh, const Vec2 &u0, con
     return intersection_param(u0, u1, v0, v1)[0]; // t in eq: u0 + (u1-u0)*t
 }
 
-static inline int next_intersection(const TriMesh &mesh, const Vec2 &u0, const Vec2 &u1, Hh hho, Hh &hhc, Vh &vhc)
+static inline int next_primitive(const TriMesh &mesh, const Vec2 &u0, const Vec2 &u1, Hh hho, Hh &hhc, Vh &vhc)
 {
     int res { NO_ITSC };
 
@@ -258,7 +262,7 @@ static inline int next_intersection(const TriMesh &mesh, const Vec2 &u0, const V
 
         if (ii == INTO_EDGE)
         {
-            hhc = hh;
+            hhc = mesh.opposite_halfedge_handle(hh);
         }
         else if (ii == ON_VERTEX)
         {
@@ -269,7 +273,7 @@ static inline int next_intersection(const TriMesh &mesh, const Vec2 &u0, const V
     return res;
 }
 
-static inline int next_intersection(const TriMesh &mesh, const Vec2 &u0, const Vec2 &u1, Vh vho, Hh &hhc, Vh &vhc)
+static inline int next_primitive(const TriMesh &mesh, const Vec2 &u0, const Vec2 &u1, Vh vho, Hh &hhc, Vh &vhc)
 {
     int res { NO_ITSC };
     double tmax {}; // the parameter in line equation: u0 + (u1-u0)*t
@@ -289,7 +293,7 @@ static inline int next_intersection(const TriMesh &mesh, const Vec2 &u0, const V
 
         if (ii == INTO_EDGE)
         {
-            hhc = hh;
+            hhc = mesh.opposite_halfedge_handle(hh);
         }
         else if (ii == ON_VERTEX)
         {
@@ -300,7 +304,7 @@ static inline int next_intersection(const TriMesh &mesh, const Vec2 &u0, const V
     return res;
 }
 
-static int get_intersections(TriMesh &mesh, Vh vh0, Vh vh1, std::vector<Hh> &hhs, std::vector<Vh> &vhs)
+static int get_intersections(const TriMesh &mesh, Vh vh0, Vh vh1, std::vector<Hh> &hhs, std::vector<Vh> &vhs)
 {
     const auto u0 = get_xy(mesh, vh0);
     const auto u1 = get_xy(mesh, vh1);
@@ -308,45 +312,41 @@ static int get_intersections(TriMesh &mesh, Vh vh0, Vh vh1, std::vector<Hh> &hhs
     // search starts with v0
     int status = ON_VERTEX;
     Vh vhc = vh0;
-    Hh hhc;
+    Hh hhc {};
 
-    const int max_num_iter = (int)mesh.n_edges();
-    int iter {};
+    const int max_n_iter = (int)mesh.n_edges(); int n_iter {};
 
-    for (int iter = 0; iter < max_num_iter; ++iter)
+    for (n_iter = 0; n_iter < max_n_iter; ++n_iter)
     {
         if (status == INTO_EDGE)
         {
-            status = next_intersection(mesh, u0, u1, hhc, hhc, vhc);
+            status = next_primitive(mesh, u0, u1, hhc, hhc, vhc);
         }
         else if (status == ON_VERTEX)
         {
-            status = next_intersection(mesh, u0, u1, vhc, hhc, vhc);
+            status = next_primitive(mesh, u0, u1, vhc, hhc, vhc);
         }
         else // searching lost in vain, for some reasons
         {
             break;
         }
 
-        if (status == ON_VERTEX)
+        if (status == ON_VERTEX) // check if v1 is reached
         {
-            if (vhc == vh1) // search reaches v1 successfully
-            {
-                break;
-            }
-            else // (u0,u1) cannot go thru any vertex other than v0 and v1
-            {
-                vhs.push_back(vhc);
-            }
+            if (vhc == vh1) break;
         }
-        else if (status == INTO_EDGE)
+
+        if (status == INTO_EDGE) // record intersecting edges
         {
             hhs.push_back(hhc);
-            hhc = mesh.opposite_halfedge_handle(hhc);
+        }
+        else if (status == ON_VERTEX) // record overlapping vertices
+        {
+            vhs.push_back(vhc); // no vertex can lie on (u0,u1) other than v0 and v1
         }
     }
 
-    if (iter >= max_num_iter)
+    if (n_iter >= max_n_iter)
     {
         return NO_ITSC;
     }

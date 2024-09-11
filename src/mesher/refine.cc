@@ -14,7 +14,19 @@ using namespace OpenMesh;
 /// Locations
 ////////////////////////////////////////////////////////////////
 
-static inline TRI_LOC locate(TriMesh &mesh, const Fh &fh, const Vec2 &u, Hh &hh)
+static inline bool is_inside(const TriMesh &mesh, const Fh &fh, const Vec2 &u)
+{
+    Hh hh0 = mesh.halfedge_handle(fh);
+    Hh hh1 = mesh.next_halfedge_handle(hh0);
+    Hh hh2 = mesh.next_halfedge_handle(hh1);
+    const auto u0 = get_xy(mesh, mesh.to_vertex_handle(hh0));
+    const auto u1 = get_xy(mesh, mesh.to_vertex_handle(hh1));
+    const auto u2 = get_xy(mesh, mesh.to_vertex_handle(hh2));
+    const auto loc = exact_locate(u0, u1, u2, u);
+    return loc != TRI_LOC::OUT;
+}
+
+static inline TRI_LOC exact_locate(const TriMesh &mesh, const Fh &fh, const Vec2 &u, Hh &hh)
 {
     constexpr double kEps = 1e-3;
     const auto hh0 = mesh.halfedge_handle(fh);
@@ -24,6 +36,24 @@ static inline TRI_LOC locate(TriMesh &mesh, const Fh &fh, const Vec2 &u, Hh &hh)
     const auto u1 = get_xy(mesh, mesh.to_vertex_handle(hh2));
     const auto u2 = get_xy(mesh, mesh.to_vertex_handle(hh0));
     const auto loc = exact_locate(u0, u1, u2, u);
+    if (loc == TRI_LOC::E0) { hh = hh0; }
+    if (loc == TRI_LOC::E1) { hh = hh1; }
+    if (loc == TRI_LOC::E2) { hh = hh2; }
+    if (loc == TRI_LOC::V0) { hh = hh1; }
+    if (loc == TRI_LOC::V1) { hh = hh2; }
+    if (loc == TRI_LOC::V2) { hh = hh0; }
+    return loc;
+}
+
+static inline TRI_LOC fuzzy_locate(const TriMesh &mesh, const Fh &fh, const Vec2 &u, Hh &hh)
+{
+    const auto hh0 = mesh.halfedge_handle(fh);
+    const auto hh1 = mesh.next_halfedge_handle(hh0);
+    const auto hh2 = mesh.next_halfedge_handle(hh1);
+    const auto u0 = get_xy(mesh, mesh.to_vertex_handle(hh1));
+    const auto u1 = get_xy(mesh, mesh.to_vertex_handle(hh2));
+    const auto u2 = get_xy(mesh, mesh.to_vertex_handle(hh0));
+    const auto loc = fuzzy_locate(u0, u1, u2, u);
     if (loc == TRI_LOC::E0) { hh = hh0; }
     if (loc == TRI_LOC::E1) { hh = hh1; }
     if (loc == TRI_LOC::E2) { hh = hh2; }
@@ -111,6 +141,17 @@ static inline Fh search_triangle(const TriMesh &mesh, const Vec2 &u, Fh fh = Fh 
     return fh;
 }
 
+static inline Vec2 centroid(const TriMesh &mesh, const Fh &fh)
+{
+    Hh hh0 = mesh.halfedge_handle(fh);
+    Hh hh1 = mesh.next_halfedge_handle(hh0);
+    Hh hh2 = mesh.next_halfedge_handle(hh1);
+    const auto u0 = get_xy(mesh, mesh.to_vertex_handle(hh0));
+    const auto u1 = get_xy(mesh, mesh.to_vertex_handle(hh1));
+    const auto u2 = get_xy(mesh, mesh.to_vertex_handle(hh2));
+    return (u0 + u1 + u2) / 3.;
+}
+
 static inline Vec2 circumcenter(const TriMesh &mesh, const Fh &fh)
 {
     Hh hh0 = mesh.halfedge_handle(fh);
@@ -123,7 +164,187 @@ static inline Vec2 circumcenter(const TriMesh &mesh, const Fh &fh)
 }
 
 ////////////////////////////////////////////////////////////////
-/// Encroachment
+/// Local search
+////////////////////////////////////////////////////////////////
+
+enum { NO_ITSC, INTO_EDGE, ON_VERTEX };
+
+static inline int intersection_info(const TriMesh &mesh, const Vec2 &u0, const Vec2 &u1, Hh hh)
+{
+    const auto v0 = get_xy(mesh, mesh.from_vertex_handle(hh));
+    const auto v1 = get_xy(mesh, mesh.to_vertex_handle  (hh));
+
+    const auto ii = intersection_info(u0, u1, v0, v1);
+    const int ru0 = ii[0];
+    const int ru1 = ii[1];
+    const int rv0 = ii[2];
+    const int rv1 = ii[3];
+
+    return
+        (ru0 * ru1 < 0) && (rv0 * rv1 < 0)        ? INTO_EDGE : // intersecting
+        (ru0 * ru1 < 0) && (rv1 == 0 && rv0 != 0) ? ON_VERTEX : // v1 lies on (u0,u1)
+        (ru0 != 0 && ru1 == 0) && (rv1 == 0)      ? ON_VERTEX : // v1 overlaps u1
+        NO_ITSC; // no intersecting, overlapping, v0 lies on (u0,u1), and other cases
+}
+
+static inline double intersection_param(const TriMesh &mesh, const Vec2 &u0, const Vec2 &u1, Hh hh)
+{
+    const auto v0 = get_xy(mesh, mesh.from_vertex_handle(hh));
+    const auto v1 = get_xy(mesh, mesh.to_vertex_handle  (hh));
+    return intersection_param(u0, u1, v0, v1)[0]; // t in eq: u0 + (u1-u0)*t
+}
+
+static inline int next_primitive(const TriMesh &mesh, const Vec2 &u0, const Vec2 &u1, Hh hho, Hh &hhc, Vh &vhc)
+{
+    int res { NO_ITSC };
+
+    Hh hh0 = mesh.prev_halfedge_handle(hho);
+    Hh hh1 = mesh.next_halfedge_handle(hho);
+
+    for (Hh hh : { hh0, hh1 })
+    {
+        const int ii = intersection_info(mesh, u0, u1, hh);
+        if (ii == NO_ITSC) continue;
+
+        res = ii;
+
+        if (ii == INTO_EDGE)
+        {
+            hhc = mesh.opposite_halfedge_handle(hh);
+        }
+        else if (ii == ON_VERTEX)
+        {
+            vhc = mesh.to_vertex_handle(hh);
+        }
+    }
+
+    return res;
+}
+
+static inline int next_primitive(const TriMesh &mesh, const Vec2 &u0, const Vec2 &u1, Vh vho, Hh &hhc, Vh &vhc)
+{
+    int res { NO_ITSC };
+    double tmax {}; // the parameter in line equation: u0 + (u1-u0)*t
+
+    for (Hh hh : mesh.voh_range(vho)) if (!mesh.is_boundary(hh))
+    {
+        hh = mesh.next_halfedge_handle(hh); // apex edge of v0
+
+        const int ii = intersection_info(mesh, u0, u1, hh);
+        if (ii == NO_ITSC) continue;
+
+        const double t = intersection_param(mesh, u0, u1, hh);
+        if (tmax >= t) continue; // intersected but earlier
+
+        tmax = t;
+        res = ii;
+
+        if (ii == INTO_EDGE)
+        {
+            hhc = mesh.opposite_halfedge_handle(hh);
+        }
+        else if (ii == ON_VERTEX)
+        {
+            vhc = mesh.to_vertex_handle(hh);
+        }
+    }
+
+    return res;
+}
+
+static inline int first_primitive(const TriMesh &mesh, const Vec2 &u0, const Vec2 &u1, Fh fh, Hh &hhc, Vh &vhc)
+{
+    int res  { NO_ITSC };
+    double tmin { 1e20 }; // the parameter in line equation: u0 + (u1-u0)*t
+
+    for (Hh hh : mesh.fh_range(fh))
+    {
+        const int ii = intersection_info(mesh, u0, u1, hh);
+        if (ii == NO_ITSC) continue;
+
+        const double t = intersection_param(mesh, u0, u1, hh);
+        if (tmin < t) continue;
+
+        tmin = t;
+        res = ii;
+
+        if (ii == INTO_EDGE)
+        {
+            hhc = hh;
+        }
+        else if (ii == ON_VERTEX)
+        {
+            vhc = mesh.to_vertex_handle(hh);
+        }
+    }
+
+    return res;
+}
+
+static Fh search_primitive(const TriMesh &mesh, const Vec2 &u1, const Fh &fh0, std::vector<Eh> &ehs)
+{
+    Vh vhc {}; Hh hhc {};
+
+    if (is_inside(mesh, fh0, u1)) return fh0;
+
+    const auto u0 = centroid(mesh, fh0);
+
+    int status = first_primitive(mesh, u0, u1, fh0, hhc, vhc);
+
+    const int max_n_iter = (int)mesh.n_edges(); int n_iter {};
+
+    for (n_iter = 0; n_iter < max_n_iter; ++n_iter)
+    {
+        if (status == INTO_EDGE) // go to the next primitive
+        {
+            status = next_primitive(mesh, u0, u1, hhc, hhc, vhc);
+        }
+        else if (status == ON_VERTEX)
+        {
+            status = next_primitive(mesh, u0, u1, vhc, hhc, vhc);
+        }
+        else // searching lost in vain, for some reasons
+        {
+            break;
+        }
+
+        if (status == INTO_EDGE) // record encroached segments
+        {
+            Eh eh = mesh.edge_handle(hhc); if (is_sharp(mesh, eh))
+            {
+                ehs.push_back(eh);
+            }
+        }
+        else if (status == ON_VERTEX)
+        {
+            for (Eh eh : mesh.ve_range(vhc)) if (is_sharp(mesh, eh))
+            {
+                ehs.push_back(eh);
+            }
+        }
+
+        Fh fh {}; // check if the target is reached
+
+        if (status == INTO_EDGE)
+        {
+            fh = mesh.face_handle(hhc);
+        }
+        else if (status == ON_VERTEX)
+        {
+            fh = mesh.face_handle(mesh.halfedge_handle(vhc));
+        }
+
+        if (fh.is_valid() && is_inside(mesh, fh, u1))
+        {
+            return fh;
+        }
+    }
+
+    return Fh {};
+}
+
+////////////////////////////////////////////////////////////////
+/// Segment encroachment
 ////////////////////////////////////////////////////////////////
 
 static inline double apex_squared_cosine(const double min_angle)
@@ -150,6 +371,9 @@ static inline bool is_encroached(const TriMesh &mesh, const Hh &hh, const double
 
 struct Encroachment
 {
+    Encroachment(const double min_angle):
+    cs2(apex_squared_cosine(min_angle)) {}
+
     inline bool operator()(const TriMesh &mesh, const Hh &hh) const
     { return !is_exterior(mesh, hh) && is_encroached(mesh, hh, cs2); } // If true, split it
 
@@ -157,10 +381,50 @@ struct Encroachment
 };
 
 ////////////////////////////////////////////////////////////////
-/// Refinement
+/// Triangle quality
 ////////////////////////////////////////////////////////////////
 
-struct Primitive { Hh hh; Vh vh0, vh1, vh2; }; // either a triangle or a segment
+struct BadTriangle
+{
+    inline bool operator()(const TriMesh &mesh, const Hh &hh) const
+    { return false; } // If true, split it
+};
+
+////////////////////////////////////////////////////////////////
+/// Refinable events
+////////////////////////////////////////////////////////////////
+
+struct Primitive // either a triangle or a segment
+{
+    Hh hh;
+    Vh vh0, vh1, vh2;
+};
+
+template<>
+struct std::hash<Primitive>
+{
+    size_t operator()(const Primitive &primitive) const noexcept
+    {
+        size_t h0 = hash<Hh>{}(primitive.hh);
+        size_t h1 = hash<Vh>{}(primitive.vh0);
+        size_t h2 = hash<Vh>{}(primitive.vh1);
+        size_t h3 = hash<Vh>{}(primitive.vh2);
+        return ((((h0 ^ h1) << 1) ^ h2) << 1) ^ h3;
+    }
+};
+
+template<>
+struct std::equal_to<Primitive>
+{
+    bool operator()(const Primitive &lhs, const Primitive &rhs) const noexcept
+    {
+        return
+            lhs.hh  == rhs.hh  &&
+            lhs.vh0 == rhs.vh0 &&
+            lhs.vh1 == rhs.vh1 &&
+            lhs.vh2 == rhs.vh2;
+        }
+};
 
 static inline bool is_triangle(const Primitive &primitive)
 {
@@ -219,6 +483,18 @@ static inline Primitive make_segment(const TriMesh &mesh, Hh hh)
     return { hh, vh0, vh1, Vh {} };
 }
 
+////////////////////////////////////////////////////////////////
+/// Refinement
+////////////////////////////////////////////////////////////////
+
+static inline Vec3 splitting_position(const TriMesh &mesh, Hh hh)
+{
+    // [TODO] handle acute corner
+
+    //
+    return mesh.calc_edge_midpoint(hh);
+}
+
 static int split_segments(TriMesh &mesh, const Encroachment &encroached)
 {
     const int max_n_iter = 100;
@@ -227,13 +503,13 @@ static int split_segments(TriMesh &mesh, const Encroachment &encroached)
 
     std::queue<Primitive> primitives; // to split
 
+    // Before enqueueing encroached segments, free vertices in
+    // the diametral circle of the segment should be deleted.
+    // [TODO]
+
     for (Eh eh : mesh.edges()) if (is_sharp(mesh, eh))
-    {
-        for (Hh hh : mesh.eh_range(eh)) if (encroached(mesh, hh))
-        {
-            primitives.push(make_segment(mesh, hh));
-        }
-    }
+    for (Hh hh : mesh.eh_range(eh)) if (encroached(mesh, hh))
+    { primitives.push(make_segment(mesh, hh)); }
 
     while (!primitives.empty())
     {
@@ -242,8 +518,7 @@ static int split_segments(TriMesh &mesh, const Encroachment &encroached)
         if (is_segment(primitive) && is_segment_valid(mesh, primitive))
         {
             // find a position for splitting
-            // [TODO] handle acute corner
-            const auto u = mesh.calc_edge_midpoint(primitive.hh);
+            const auto u = splitting_position(mesh, primitive.hh);
 
             // split the segment
             Vh vh = mesh.new_vertex(u);
@@ -273,8 +548,12 @@ static int split_segments(TriMesh &mesh, const Encroachment &encroached)
     return 0;
 }
 
-static int split_interior(TriMesh &mesh, const Encroachment &encroached)
+static int split_interior(TriMesh &mesh, const BadTriangle &bad_triangle, const Encroachment &encroached)
 {
+    const int max_n_iter = 100;
+
+    auto delaunifier = make_delaunifier(mesh, EuclideanDelaunay {});
+
     return 0;
 }
 
@@ -284,13 +563,15 @@ static int split_interior(TriMesh &mesh, const Encroachment &encroached)
 
 int refine(TriMesh &mesh, const double min_angle)
 {
-    const double cs2 = apex_squared_cosine(min_angle);
+    Encroachment encroached(min_angle);
 
-    Encroachment encroached { cs2 };
+    BadTriangle bad_triangle;
 
     int err;
 
     err = split_segments(mesh, encroached);
+
+    err = split_interior(mesh, bad_triangle, encroached);
 
     return err;
 }
