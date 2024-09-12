@@ -66,6 +66,13 @@ int main(const int argc, const char **argv)
     if (argc < 2) { printf("No file provided.\n"); return 1; }
 
     double min_angle = 26.0;
+    double max_length = 0;
+    double max_area = 0;
+
+    const char *arg {};
+    if ((arg = get_value(argv, argv + argc, "--min-angle")))  { min_angle = atof(arg); }
+    if ((arg = get_value(argv, argv + argc, "--max-length"))) { max_length = atof(arg); }
+    if ((arg = get_value(argv, argv + argc, "--max-area")))   { max_area = atof(arg); }
 
     filename.append(argv[1]);
     prefix = filename.substr(0, filename.find_last_of("."));
