@@ -366,29 +366,29 @@ struct BadTriangle
 /// Refinable events
 ////////////////////////////////////////////////////////////////
 
-struct Primitive // either a triangle or a segment
+struct Event // either a triangle or a segment
 {
     Hh hh;
     Vh vh0, vh1, vh2;
 };
 
 template<>
-struct std::hash<Primitive>
+struct std::hash<Event>
 {
-    size_t operator()(const Primitive &primitive) const noexcept
+    size_t operator()(const Event &event) const noexcept
     {
-        size_t h0 = hash<Hh>{}(primitive.hh);
-        size_t h1 = hash<Vh>{}(primitive.vh0);
-        size_t h2 = hash<Vh>{}(primitive.vh1);
-        size_t h3 = hash<Vh>{}(primitive.vh2);
+        size_t h0 = hash<Hh>{}(event.hh);
+        size_t h1 = hash<Vh>{}(event.vh0);
+        size_t h2 = hash<Vh>{}(event.vh1);
+        size_t h3 = hash<Vh>{}(event.vh2);
         return ((((h0 ^ h1) << 1) ^ h2) << 1) ^ h3;
     }
 };
 
 template<>
-struct std::equal_to<Primitive>
+struct std::equal_to<Event>
 {
-    bool operator()(const Primitive &lhs, const Primitive &rhs) const noexcept
+    bool operator()(const Event &lhs, const Event &rhs) const noexcept
     {
         return
             lhs.hh  == rhs.hh  &&
@@ -398,57 +398,54 @@ struct std::equal_to<Primitive>
         }
 };
 
-static inline bool is_triangle(const Primitive &primitive)
+static inline bool is_triangle(const TriMesh &mesh, const Event &event)
 {
-    return
-        primitive.vh0.is_valid() &&
-        primitive.vh1.is_valid() &&
-        primitive.vh2.is_valid();
-}
+    // check if the event type is triangle
+    if (!event.vh2.is_valid()) return false;
 
-static inline bool is_segment(const Primitive &primitive)
-{
-    return
-        primitive.vh0.is_valid() &&
-        primitive.vh1.is_valid() &&
-       !primitive.vh2.is_valid();
-}
+    // check if the event was not changed
+    if (mesh.is_boundary(event.hh)) return false;
 
-static inline bool is_triangle_valid(const TriMesh &mesh, const Primitive &primitive)
-{
-    if (mesh.is_boundary(primitive.hh)) return false;
-
-    Hh hh = primitive.hh;
-    if (mesh.to_vertex_handle(hh) != primitive.vh0)
+    Hh hh = event.hh;
+    if (mesh.to_vertex_handle(hh) != event.vh0)
         hh = mesh.next_halfedge_handle(hh);
-    if (mesh.to_vertex_handle(hh) != primitive.vh0)
+    if (mesh.to_vertex_handle(hh) != event.vh0)
         hh = mesh.next_halfedge_handle(hh);
-    if (mesh.to_vertex_handle(hh) != primitive.vh0)
+    if (mesh.to_vertex_handle(hh) != event.vh0)
         return false;
 
     hh = mesh.next_halfedge_handle(hh);
-    if (mesh.to_vertex_handle(hh) != primitive.vh1)
+    if (mesh.to_vertex_handle(hh) != event.vh1)
         return false;
 
     hh = mesh.next_halfedge_handle(hh);
-    if (mesh.to_vertex_handle(hh) != primitive.vh2)
+    if (mesh.to_vertex_handle(hh) != event.vh2)
         return false;
 
     return true;
 }
 
-static inline bool is_segment_valid(const TriMesh &mesh, const Primitive &primitive)
+static inline bool is_segment(const TriMesh &mesh, const Event &event)
 {
-    Hh hh = primitive.hh;
+    // check if the event type is segment
+    if (event.vh2.is_valid()) return false;
+
+    // check if the event was not changed
+    Hh hh = event.hh;
     Vh vh0 = mesh.from_vertex_handle(hh);
     Vh vh1 = mesh.to_vertex_handle  (hh);
 
-    return
-        vh0 == primitive.vh0 && vh1 == primitive.vh1 ||
-        vh0 == primitive.vh1 && vh1 == primitive.vh0;
+    return vh0 == event.vh0 && vh1 == event.vh1;
 }
 
-static inline Primitive make_segment(const TriMesh &mesh, Hh hh)
+static inline Event make_triangle(const TriMesh &mesh, Hh hh)
+{
+    Vh vh0 = mesh.from_vertex_handle(hh);
+    Vh vh1 = mesh.to_vertex_handle  (hh);
+    return { hh, vh0, vh1, Vh {} };
+}
+
+static inline Event make_segment(const TriMesh &mesh, Hh hh)
 {
     Vh vh0 = mesh.from_vertex_handle(hh);
     Vh vh1 = mesh.to_vertex_handle  (hh);
@@ -501,7 +498,7 @@ static int split_segments(TriMesh &mesh, const Encroachment &encroached)
 
     auto delaunifier = make_delaunifier(mesh, EuclideanDelaunay {});
 
-    std::queue<Primitive> primitives; // to split
+    std::queue<Event> events; // to split
 
     // Before enqueueing encroached segments, free vertices in
     // the diametral circle of the segment should be deleted.
@@ -509,20 +506,20 @@ static int split_segments(TriMesh &mesh, const Encroachment &encroached)
 
     for (Eh eh : mesh.edges()) if (is_sharp(mesh, eh))
     for (Hh hh : mesh.eh_range(eh)) if (encroached(mesh, hh))
-    { primitives.push(make_segment(mesh, hh)); }
+    { events.push(make_segment(mesh, hh)); }
 
-    while (!primitives.empty())
+    while (!events.empty())
     {
-        auto primitive = primitives.front(); primitives.pop();
+        auto event = events.front(); events.pop();
 
-        if (is_segment(primitive) && is_segment_valid(mesh, primitive))
+        if (is_segment(mesh, event))
         {
             // find a position for splitting
-            const auto u = splitting_position(mesh, primitive.hh);
+            const auto u = splitting_position(mesh, event.hh);
 
             // split the segment
             Vh vh = mesh.new_vertex({ u[0], u[1], 0 });
-            split_edge(mesh, primitive.hh, vh);
+            split_edge(mesh, event.hh, vh);
 
             // edges to flip
             Eh ehs[4]; int ne {};
@@ -536,12 +533,12 @@ static int split_segments(TriMesh &mesh, const Encroachment &encroached)
             // check encroachment of encountered segment while testing Delaunayhood
             for (Eh eh = delaunifier.next(); eh.is_valid() && n_iter < max_n_iter; eh = delaunifier.next(), ++n_iter)
             if (is_sharp(mesh, eh)) for (Hh hh : mesh.eh_range(eh)) if (encroached(mesh, hh))
-            { primitives.push(make_segment(mesh, hh)); }
+            { events.push(make_segment(mesh, hh)); }
 
             // check encroachment of two new segments afterwards
             for (Eh eh : mesh.ve_range(vh)) if (is_sharp(mesh, eh))
             for (Hh hh : mesh.eh_range(eh)) if (encroached(mesh, hh))
-            { primitives.push(make_segment(mesh, hh)); }
+            { events.push(make_segment(mesh, hh)); }
         }
     }
 
@@ -567,7 +564,7 @@ int refine(TriMesh &mesh, const double min_angle)
 
     BadTriangle bad_triangle;
 
-    int err;
+    int err {};
 
     err = split_segments(mesh, encroached);
 
