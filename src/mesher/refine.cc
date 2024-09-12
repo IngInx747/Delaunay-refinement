@@ -26,7 +26,7 @@ static inline bool is_inside(const TriMesh &mesh, const Fh &fh, const Vec2 &u)
     return loc != TRI_LOC::OUT;
 }
 
-static inline TRI_LOC exact_locate(const TriMesh &mesh, const Fh &fh, const Vec2 &u, Hh &hh)
+static inline TRI_LOC locate(const TriMesh &mesh, const Fh &fh, const Vec2 &u, Hh &hh)
 {
     constexpr double kEps = 1e-3;
     const auto hh0 = mesh.halfedge_handle(fh);
@@ -36,24 +36,6 @@ static inline TRI_LOC exact_locate(const TriMesh &mesh, const Fh &fh, const Vec2
     const auto u1 = get_xy(mesh, mesh.to_vertex_handle(hh2));
     const auto u2 = get_xy(mesh, mesh.to_vertex_handle(hh0));
     const auto loc = exact_locate(u0, u1, u2, u);
-    if (loc == TRI_LOC::E0) { hh = hh0; }
-    if (loc == TRI_LOC::E1) { hh = hh1; }
-    if (loc == TRI_LOC::E2) { hh = hh2; }
-    if (loc == TRI_LOC::V0) { hh = hh1; }
-    if (loc == TRI_LOC::V1) { hh = hh2; }
-    if (loc == TRI_LOC::V2) { hh = hh0; }
-    return loc;
-}
-
-static inline TRI_LOC fuzzy_locate(const TriMesh &mesh, const Fh &fh, const Vec2 &u, Hh &hh)
-{
-    const auto hh0 = mesh.halfedge_handle(fh);
-    const auto hh1 = mesh.next_halfedge_handle(hh0);
-    const auto hh2 = mesh.next_halfedge_handle(hh1);
-    const auto u0 = get_xy(mesh, mesh.to_vertex_handle(hh1));
-    const auto u1 = get_xy(mesh, mesh.to_vertex_handle(hh2));
-    const auto u2 = get_xy(mesh, mesh.to_vertex_handle(hh0));
-    const auto loc = fuzzy_locate(u0, u1, u2, u);
     if (loc == TRI_LOC::E0) { hh = hh0; }
     if (loc == TRI_LOC::E1) { hh = hh1; }
     if (loc == TRI_LOC::E2) { hh = hh2; }
@@ -487,12 +469,40 @@ static inline Primitive make_segment(const TriMesh &mesh, Hh hh)
 /// Refinement
 ////////////////////////////////////////////////////////////////
 
-static inline Vec3 splitting_position(const TriMesh &mesh, Hh hh)
+static inline Vec2 splitting_position(const TriMesh &mesh, Hh hh)
 {
-    // [TODO] handle acute corner
+    const auto u0 = get_xy(mesh, mesh.from_vertex_handle(hh));
+    const auto u1 = get_xy(mesh, mesh.to_vertex_handle  (hh));
+    double t = 0.5;
 
-    //
-    return mesh.calc_edge_midpoint(hh);
+    /// The concentric circle algorithm is adapted from 'Triangle' lib
+    ///   to handle small angle in the input. Ref 'Delaunay Refinement
+    ///   Algorithms for Triangular Mesh Generation' [01 J.R.Shewchuk]
+
+    Hh hi = mesh.opposite_halfedge_handle(hh);
+
+    bool is_acute_v0 = 
+        !mesh.is_boundary(hh) && is_sharp(mesh, mesh.edge_handle(mesh.prev_halfedge_handle(hh))) ||
+        !mesh.is_boundary(hi) && is_sharp(mesh, mesh.edge_handle(mesh.next_halfedge_handle(hi)));
+
+    bool is_acute_v1 = 
+        !mesh.is_boundary(hh) && is_sharp(mesh, mesh.edge_handle(mesh.next_halfedge_handle(hh))) ||
+        !mesh.is_boundary(hi) && is_sharp(mesh, mesh.edge_handle(mesh.prev_halfedge_handle(hi)));
+
+    if (is_acute_v0 || is_acute_v1)
+    {
+        const double l = norm(u1 - u0);
+        double ep = 1; // nearest power of 2
+
+        // find the ratio that splits the segment most evenly
+        while (ep*3.0 < l) { ep *= 2.0; }
+        while (ep*1.5 > l) { ep *= 0.5; }
+
+        t = ep / l;
+        t = is_acute_v1 ? 1 - t : t;
+    }
+
+    return u0*(1-t) + u1*t;
 }
 
 static int split_segments(TriMesh &mesh, const Encroachment &encroached)
@@ -521,7 +531,7 @@ static int split_segments(TriMesh &mesh, const Encroachment &encroached)
             const auto u = splitting_position(mesh, primitive.hh);
 
             // split the segment
-            Vh vh = mesh.new_vertex(u);
+            Vh vh = mesh.new_vertex({ u[0], u[1], 0 });
             split_edge(mesh, primitive.hh, vh);
 
             // edges to flip
