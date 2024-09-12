@@ -6,7 +6,6 @@
 #include "segment.hh"
 #include "mesh.hh"
 #include "topology.hh"
-#include "search.hh"
 
 using namespace OpenMesh;
 
@@ -112,15 +111,6 @@ static inline void split_edge(TriMesh &mesh, Hh hh, Vh vh)
 static inline void split_face(TriMesh &mesh, Fh fh, Vh vh)
 {
     mesh.split_copy(fh, vh);
-}
-
-static inline Fh search_triangle(const TriMesh &mesh, const Vec2 &u, Fh fh = Fh {})
-{
-    if (!fh.is_valid()) for (Fh fi : mesh.faces()) { fh = fi; break; }
-
-    fh = search_triangle_straight_way(mesh, u, fh);
-
-    return fh;
 }
 
 static inline Vec2 centroid(const TriMesh &mesh, const Fh &fh)
@@ -247,7 +237,7 @@ static inline int first_primitive(const TriMesh &mesh, const Vec2 &u0, const Vec
         const double t = intersection_param(mesh, u0, u1, hh);
         if (tmin < t) continue;
 
-        tmin = t;
+        tmin = t; // ideally t_min < 0
         res = ii;
 
         if (ii == INTO_EDGE)

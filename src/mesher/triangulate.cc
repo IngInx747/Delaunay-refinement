@@ -6,7 +6,6 @@
 #include "segment.hh"
 #include "mesh.hh"
 #include "topology.hh"
-#include "search.hh"
 
 using namespace OpenMesh;
 
@@ -102,13 +101,13 @@ static inline void split_face(TriMesh &mesh, Fh fh, Vh vh)
     mesh.split_copy(fh, vh);
 }
 
+Fh search_triangle_local_way(const TriMesh&, const Vec2&, const Fh&);
+
 static inline Fh search_triangle(const TriMesh &mesh, const Vec2 &u, Fh fh = Fh {})
 {
     if (!fh.is_valid()) for (Fh fi : mesh.faces()) { fh = fi; break; }
 
-    fh = search_triangle_straight_way(mesh, u, fh);
-
-    return fh;
+    return search_triangle_local_way(mesh, u, fh);
 }
 
 ////////////////////////////////////////////////////////////////

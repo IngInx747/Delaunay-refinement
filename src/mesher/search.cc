@@ -114,7 +114,7 @@ Fh search_triangle_brute_force(const TriMesh &mesh, const Vec2 &u)
     return Fh {};
 }
 
-Fh search_triangle_straight_way(const TriMesh &mesh, const Vec2 &u, const Fh &fho)
+Fh search_triangle_local_way(const TriMesh &mesh, const Vec2 &u, const Fh &fho)
 {
     const int nf = (int)mesh.n_faces();
     Fh fh = fho; Hh hh {};
@@ -148,7 +148,7 @@ Fh search_triangle_guided_bfs(const TriMesh &mesh, const Vec2 &u, const Fh &fho)
     while (!frontier.empty())
     {
         auto ft = frontier.front(); frontier.pop();
-        auto fh = search_triangle_straight_way(mesh, u, ft);
+        auto fh = search_triangle_local_way(mesh, u, ft);
         if (is_inside(mesh, fh, u)) return fh;
 
         // Do not start with a visited face, with previous one instead
@@ -201,3 +201,13 @@ Fh fuzzy_search_triangle_boundary(const TriMesh &mesh, const Vec2 &u, const doub
 
     return mesh.opposite_face_handle(hh);
 }
+
+Fh search_triangle_brute_force(const TriMesh&, const Vec2&);
+
+Fh search_triangle_local_way(const TriMesh&, const Vec2&, const Fh&);
+
+Fh search_triangle_guided_bfs(const TriMesh&, const Vec2&, const Fh&);
+
+Fh fuzzy_search_triangle_boundary(const TriMesh&, const Vec2&, const double tol);
+
+Fh fuzzy_search_triangle_boundary(const TriMesh&, const Vec2&, const double tol);
