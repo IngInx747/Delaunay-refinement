@@ -43,7 +43,7 @@ int make_delaunay(TriMesh &mesh)
 
 #else // test Delaunayhood while checking each encountered edge
     for (Eh eh = delaunifier.next(); eh.is_valid() && n_flip < max_n_flip; eh = delaunifier.next(), ++n_flip)
-    {} // do something each checking
+    {} // do something each encountering
 
 #endif
 
