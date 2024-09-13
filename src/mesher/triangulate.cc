@@ -15,10 +15,9 @@ using namespace OpenMesh;
 
 static inline TRI_LOC locate(const TriMesh &mesh, const Fh &fh, const Vec2 &u, Hh &hh)
 {
-    constexpr double kEps = 1e-3;
-    const auto hh0 = mesh.halfedge_handle(fh);
-    const auto hh1 = mesh.next_halfedge_handle(hh0);
-    const auto hh2 = mesh.next_halfedge_handle(hh1);
+    Hh hh0 = mesh.halfedge_handle(fh);
+    Hh hh1 = mesh.next_halfedge_handle(hh0);
+    Hh hh2 = mesh.next_halfedge_handle(hh1);
     const auto u0 = get_xy(mesh, mesh.to_vertex_handle(hh1));
     const auto u1 = get_xy(mesh, mesh.to_vertex_handle(hh2));
     const auto u2 = get_xy(mesh, mesh.to_vertex_handle(hh0));
@@ -591,7 +590,7 @@ static int hide_exterior_region(TriMesh &mesh, const std::vector<Fh> &fhs)
     // hide vertices
     for (Hh hh : mesh.halfedges()) if (mesh.is_boundary(hh))
     {
-        set_hidden(mesh, mesh.to_vertex_handle(hh), true);
+        //set_hidden(mesh, mesh.to_vertex_handle(hh), true);
     }
 
     return 0;
