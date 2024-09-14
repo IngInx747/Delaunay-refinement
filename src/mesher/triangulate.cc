@@ -6,30 +6,9 @@
 #include "segment.hh"
 #include "mesh.hh"
 #include "topology.hh"
+#include "search.hh"
 
 using namespace OpenMesh;
-
-////////////////////////////////////////////////////////////////
-/// Locations
-////////////////////////////////////////////////////////////////
-
-static inline TRI_LOC locate(const TriMesh &mesh, const Fh &fh, const Vec2 &u, Hh &hh)
-{
-    Hh hh0 = mesh.halfedge_handle(fh);
-    Hh hh1 = mesh.next_halfedge_handle(hh0);
-    Hh hh2 = mesh.next_halfedge_handle(hh1);
-    const auto u0 = get_xy(mesh, mesh.to_vertex_handle(hh1));
-    const auto u1 = get_xy(mesh, mesh.to_vertex_handle(hh2));
-    const auto u2 = get_xy(mesh, mesh.to_vertex_handle(hh0));
-    const auto loc = exact_locate(u0, u1, u2, u);
-    if (loc == TRI_LOC::E0) { hh = hh0; }
-    if (loc == TRI_LOC::E1) { hh = hh1; }
-    if (loc == TRI_LOC::E2) { hh = hh2; }
-    if (loc == TRI_LOC::V0) { hh = hh1; }
-    if (loc == TRI_LOC::V1) { hh = hh2; }
-    if (loc == TRI_LOC::V2) { hh = hh0; }
-    return loc;
-}
 
 ////////////////////////////////////////////////////////////////
 /// Delaunay
@@ -81,6 +60,24 @@ static int make_delaunay(TriMesh &mesh, Eh eh)
 /// Utilities
 ////////////////////////////////////////////////////////////////
 
+static inline TRI_LOC locate(const TriMesh &mesh, const Fh &fh, const Vec2 &u, Hh &hh)
+{
+    Hh hh0 = mesh.halfedge_handle(fh);
+    Hh hh1 = mesh.next_halfedge_handle(hh0);
+    Hh hh2 = mesh.next_halfedge_handle(hh1);
+    const auto u0 = get_xy(mesh, mesh.to_vertex_handle(hh1));
+    const auto u1 = get_xy(mesh, mesh.to_vertex_handle(hh2));
+    const auto u2 = get_xy(mesh, mesh.to_vertex_handle(hh0));
+    const auto loc = exact_locate(u0, u1, u2, u);
+    if (loc == TRI_LOC::E0) { hh = hh0; }
+    if (loc == TRI_LOC::E1) { hh = hh1; }
+    if (loc == TRI_LOC::E2) { hh = hh2; }
+    if (loc == TRI_LOC::V0) { hh = hh1; }
+    if (loc == TRI_LOC::V1) { hh = hh2; }
+    if (loc == TRI_LOC::V2) { hh = hh0; }
+    return loc;
+}
+
 static inline void split_edge(TriMesh &mesh, Hh hh, Vh vh)
 {
     Eh eh  = mesh.edge_handle(hh);
@@ -99,8 +96,6 @@ static inline void split_face(TriMesh &mesh, Fh fh, Vh vh)
 {
     mesh.split_copy(fh, vh);
 }
-
-Fh search_triangle_local_way(const TriMesh&, const Vec2&, const Fh&);
 
 static inline Fh search_triangle(const TriMesh &mesh, const Vec2 &u, Fh fh = Fh {})
 {
@@ -217,141 +212,6 @@ static int insert_vertices(TriMesh &mesh, std::unordered_map<Vh, Vh> &dups)
 /// Local search
 ////////////////////////////////////////////////////////////////
 
-enum { NO_ITSC, INTO_EDGE, ON_VERTEX };
-
-static inline int intersection_info(const TriMesh &mesh, const Vec2 &u0, const Vec2 &u1, Hh hh)
-{
-    const auto v0 = get_xy(mesh, mesh.from_vertex_handle(hh));
-    const auto v1 = get_xy(mesh, mesh.to_vertex_handle  (hh));
-
-    const auto ii = intersection_info(u0, u1, v0, v1);
-    const int ru0 = ii[0];
-    const int ru1 = ii[1];
-    const int rv0 = ii[2];
-    const int rv1 = ii[3];
-
-    return
-        (ru0 * ru1 < 0) && (rv0 * rv1 < 0)        ? INTO_EDGE : // intersecting
-        (ru0 * ru1 < 0) && (rv1 == 0 && rv0 != 0) ? ON_VERTEX : // v1 lies on (u0,u1)
-        (ru0 != 0 && ru1 == 0) && (rv1 == 0)      ? ON_VERTEX : // v1 overlaps u1
-        NO_ITSC; // no intersecting, overlapping, v0 lies on (u0,u1), and other cases
-}
-
-static inline double intersection_param(const TriMesh &mesh, const Vec2 &u0, const Vec2 &u1, Hh hh)
-{
-    const auto v0 = get_xy(mesh, mesh.from_vertex_handle(hh));
-    const auto v1 = get_xy(mesh, mesh.to_vertex_handle  (hh));
-    return intersection_param(u0, u1, v0, v1)[0]; // t in eq: u0 + (u1-u0)*t
-}
-
-static inline int next_primitive(const TriMesh &mesh, const Vec2 &u0, const Vec2 &u1, Hh hho, Hh &hhc, Vh &vhc)
-{
-    int res { NO_ITSC };
-
-    Hh hh0 = mesh.prev_halfedge_handle(hho);
-    Hh hh1 = mesh.next_halfedge_handle(hho);
-
-    for (Hh hh : { hh0, hh1 })
-    {
-        const int ii = intersection_info(mesh, u0, u1, hh);
-        if (ii == NO_ITSC) continue;
-
-        res = ii;
-
-        if (ii == INTO_EDGE)
-        {
-            hhc = mesh.opposite_halfedge_handle(hh);
-        }
-        else if (ii == ON_VERTEX)
-        {
-            vhc = mesh.to_vertex_handle(hh);
-        }
-    }
-
-    return res;
-}
-
-static inline int next_primitive(const TriMesh &mesh, const Vec2 &u0, const Vec2 &u1, Vh vho, Hh &hhc, Vh &vhc)
-{
-    int res { NO_ITSC };
-    double tmax {}; // the parameter in line equation: u0 + (u1-u0)*t
-
-    for (Hh hh : mesh.voh_range(vho)) if (!mesh.is_boundary(hh))
-    {
-        hh = mesh.next_halfedge_handle(hh); // apex edge of v0
-
-        const int ii = intersection_info(mesh, u0, u1, hh);
-        if (ii == NO_ITSC) continue;
-
-        const double t = intersection_param(mesh, u0, u1, hh);
-        if (tmax >= t) continue; // intersected but earlier
-
-        tmax = t;
-        res = ii;
-
-        if (ii == INTO_EDGE)
-        {
-            hhc = mesh.opposite_halfedge_handle(hh);
-        }
-        else if (ii == ON_VERTEX)
-        {
-            vhc = mesh.to_vertex_handle(hh);
-        }
-    }
-
-    return res;
-}
-
-static int get_intersections(const TriMesh &mesh, Vh vh0, Vh vh1, std::vector<Hh> &hhs, std::vector<Vh> &vhs)
-{
-    const auto u0 = get_xy(mesh, vh0);
-    const auto u1 = get_xy(mesh, vh1);
-
-    // search starts with v0
-    int status = ON_VERTEX;
-    Vh vhc = vh0;
-    Hh hhc {};
-
-    const int max_n_iter = (int)mesh.n_edges(); int n_iter {};
-
-    for (n_iter = 0; n_iter < max_n_iter; ++n_iter)
-    {
-        if (status == INTO_EDGE)
-        {
-            status = next_primitive(mesh, u0, u1, hhc, hhc, vhc);
-        }
-        else if (status == ON_VERTEX)
-        {
-            status = next_primitive(mesh, u0, u1, vhc, hhc, vhc);
-        }
-        else // searching lost in vain, for some reasons
-        {
-            break;
-        }
-
-        if (status == ON_VERTEX) // check if v1 is reached
-        {
-            if (vhc == vh1) break;
-        }
-
-        if (status == INTO_EDGE) // record intersecting edges
-        {
-            hhs.push_back(hhc);
-        }
-        else if (status == ON_VERTEX) // record overlapping vertices
-        {
-            vhs.push_back(vhc); // no vertex can lie on (u0,u1) other than v0 and v1
-        }
-    }
-
-    if (n_iter >= max_n_iter)
-    {
-        return NO_ITSC;
-    }
-
-    return status;
-}
-
 ////////////////////////////////////////////////////////////////
 /// Constraints
 ////////////////////////////////////////////////////////////////
@@ -373,11 +233,54 @@ static inline bool is_flippable(const TriMesh &mesh, const Hh &hh)
     return exact_convex(u0, u1, u2, u3);
 }
 
-static inline bool is_intersecting(const TriMesh &mesh, Vh vh0, Vh vh1, Hh hh)
+static inline bool is_intersecting(const TriMesh &mesh, const Vec2 &u0, const Vec2 &u1, const Hh &hh)
+{
+    const auto v0 = get_xy(mesh, mesh.from_vertex_handle(hh));
+    const auto v1 = get_xy(mesh, mesh.to_vertex_handle  (hh));
+    const auto ii = intersection_info(u0, u1, v0, v1);
+    const int ru0 = ii[0];
+    const int ru1 = ii[1];
+    const int rv0 = ii[2];
+    const int rv1 = ii[3];
+    return (ru0 * ru1 < 0) && (rv0 * rv1 < 0); // exclusively intersecting
+}
+
+static inline bool is_intersecting(const TriMesh &mesh, const Vh &vh0, const Vh &vh1, const Hh &hh)
 {
     const auto u0 = get_xy(mesh, vh0);
     const auto u1 = get_xy(mesh, vh1);
-    return intersection_info(mesh, u0, u1, hh) == INTO_EDGE;
+    return is_intersecting(mesh, u0, u1, hh);
+}
+
+static int get_intersections(const TriMesh &mesh, const Vh &vh0, const Vh &vh1, std::vector<Hh> &hhs, std::vector<Vh> &vhs)
+{
+    PrimitivePlow pp(mesh);
+
+    init(pp, vh0, vh1); // setup the plow
+
+    const int max_n_iter = (int)mesh.n_edges(); int n_iter {};
+
+    for (pp.next(); n_iter < max_n_iter; pp.next(), ++n_iter)
+    {
+        if (pp.status() == PLOW_STATUS::VERT) // check if v1 is reached
+        {
+            if (pp.vertex_handle() == vh1) return 0;
+        }
+        if (pp.status() == PLOW_STATUS::EDGE) // record intersecting edges
+        {
+            hhs.push_back(pp.halfedge_handle());
+        }
+        else if (pp.status() == PLOW_STATUS::VERT) // record overlapping vertices
+        {
+            vhs.push_back(pp.vertex_handle()); // no vertex can lie on (u0,u1) other than v0 and v1
+        }
+        else if (pp.status() == PLOW_STATUS::MISS) // searching lost in vain, for some reasons
+        {
+            break;
+        }
+    }
+
+    return 1;
 }
 
 static Hh restore_constraint(TriMesh &mesh, Vh vh0, Vh vh1, std::vector<Hh> &hitscs, std::vector<Vh> &vitscs)
@@ -388,8 +291,7 @@ static Hh restore_constraint(TriMesh &mesh, Vh vh0, Vh vh1, std::vector<Hh> &hit
     std::vector<Hh> hhs {}; // edges intersected with (u0,u1)
     std::vector<Vh> vhs {}; // vertices lying on (u0,u1)
 
-    if (get_intersections(mesh, vh0, vh1, hhs, vhs) == NO_ITSC)
-        return Hh {};
+    if (get_intersections(mesh, vh0, vh1, hhs, vhs)) return Hh {};
 
     // check self-intersection
     bool has_self_intersection {};
@@ -590,7 +492,7 @@ static int hide_exterior_region(TriMesh &mesh, const std::vector<Fh> &fhs)
     // hide vertices
     for (Hh hh : mesh.halfedges()) if (mesh.is_boundary(hh))
     {
-        //set_hidden(mesh, mesh.to_vertex_handle(hh), true);
+        set_hidden(mesh, mesh.to_vertex_handle(hh), true);
     }
 
     return 0;

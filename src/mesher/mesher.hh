@@ -1,3 +1,6 @@
+#ifndef MESHER2D_HH
+#define MESHER2D_HH
+
 #include <vector>
 #include <unordered_map>
 #include <unordered_set>
@@ -25,3 +28,5 @@ int hide_exterior_region(TriMesh&, const std::vector<Vec2> &seeds);
 int laplacian_smoothing(TriMesh&, const double step, const int max_num_iter);
 
 int local_CVT_smoothing(TriMesh&, const double step, const int max_num_iter);
+
+#endif

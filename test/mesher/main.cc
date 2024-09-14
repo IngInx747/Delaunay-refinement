@@ -89,6 +89,7 @@ int main(const int argc, const char **argv)
     getOrMakeProperty<Mh, std::string>(mesh, var_m_path())() = path;
 
     err = triangulate(vs, es, mesh);
+    mesh.delete_isolated_vertices(); // remove dups
     save_mesh(mesh, (prefix + ".CDT.mesh").c_str());
     if (err) { printf("Segments intersecting.\n"); return err; }
 

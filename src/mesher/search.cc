@@ -6,14 +6,14 @@
 #include "triangle.hh"
 #include "segment.hh"
 #include "mesh.hh"
+#include "search.hh"
 
 using namespace OpenMesh;
 
 ////////////////////////////////////////////////////////////////
-/// pred2D
+/// Exact search
 ////////////////////////////////////////////////////////////////
 
-/// Check if a point(u) is inside the triangle(u0, u1, u2), inclusively
 static inline bool is_inside(const Vec2 &u0, const Vec2 &u1, const Vec2 &u2, const Vec2 &u)
 {
     const int r0 = orientation(u1, u2, u);
@@ -45,10 +45,6 @@ static inline bool is_intersecting(const Vec2 &u0, const Vec2 &u1, const Vec2 &v
         rv1 == 0 && rv0 != 0 && ru0*ru1 <= 0  ;  // v1 lies on [u0,u1]
 }
 
-////////////////////////////////////////////////////////////////
-/// utils
-////////////////////////////////////////////////////////////////
-
 static inline bool is_inside(const TriMesh &mesh, const Fh &fh, const Vec2 &u)
 {
     const auto hh = mesh.halfedge_handle(fh);
@@ -74,40 +70,6 @@ static inline Vec2 centroid(const TriMesh &mesh, const Fh &fh)
     return (u0 + u1 + u2) / 3.;
 }
 
-static inline double hausdorff_distance(const TriMesh &mesh, const Hh &hh, const Vec2 &u)
-{
-    const auto u0 = get_xy(mesh, mesh.from_vertex_handle(hh));
-    const auto u1 = get_xy(mesh, mesh.to_vertex_handle  (hh));
-    return hausdorff_distance({ u0,u1 }, u);
-}
-
-static inline double hausdorff_distance(const TriMesh &mesh, const Eh &eh, const Vec2 &u)
-{
-    const auto u0 = get_xy(mesh, mesh.from_vertex_handle(mesh.halfedge_handle(eh, 0)));
-    const auto u1 = get_xy(mesh, mesh.to_vertex_handle  (mesh.halfedge_handle(eh, 0)));
-    return hausdorff_distance({ u0, u1 }, u);
-}
-
-static inline double hausdorff_distance(const TriMesh &mesh, const Fh &fh, const Vec2 &u)
-{
-    const auto hh = mesh.halfedge_handle(fh);
-    const auto u0 = get_xy(mesh, mesh.from_vertex_handle(hh));
-    const auto u1 = get_xy(mesh, mesh.to_vertex_handle  (hh));
-    const auto u2 = get_xy(mesh, mesh.to_vertex_handle  (mesh.next_halfedge_handle(hh)));
-    return hausdorff_distance({ u0,u1,u2 }, u);
-}
-
-static inline SEG_LOC locate(const TriMesh &mesh, const Eh &eh, const Vec2 &u)
-{
-    const auto u0 = get_xy(mesh, mesh.from_vertex_handle(mesh.halfedge_handle(eh, 0)));
-    const auto u1 = get_xy(mesh, mesh.to_vertex_handle  (mesh.halfedge_handle(eh, 0)));
-    return locate(u0, u1, u);
-}
-
-////////////////////////////////////////////////////////////////
-/// Triangle search
-////////////////////////////////////////////////////////////////
-
 Fh search_triangle_brute_force(const TriMesh &mesh, const Vec2 &u)
 {
     for (auto face : mesh.faces()) if (is_inside(mesh, face, u)) return face;
@@ -121,17 +83,16 @@ Fh search_triangle_local_way(const TriMesh &mesh, const Vec2 &u, const Fh &fho)
 
     for (int iter = 0; iter < nf; ++iter)
     {
-        //if (is_inside(mesh, fh, u)) break;
-        Fh fhn = fh; // next face handle
+        Fh fi = fh; // next face handle
 
         for (auto hdge : mesh.fh_range(fh)) if (hdge != hh)
         if (is_intersecting(mesh, hdge, centroid(mesh, fh), u))
-        { fhn = hdge.opp().face(); hh = hdge.opp(); break; }
+        { fi = hdge.opp().face(); hh = hdge.opp(); break; }
 
-        if (!fhn.is_valid()) break; // run into boundary
-        if (fhn == fh) assert(is_inside(mesh, fh, u));
-        if (fhn == fh) break; // inside triangle
-        fh = fhn; // go to next triangle
+        if (!fi.is_valid()) break; // run into boundary
+        if (fi == fh) assert(is_inside(mesh, fh, u));
+        if (fi == fh) break; // inside triangle
+        fh = fi; // go to the next triangle
     }
 
     return fh;
@@ -174,6 +135,29 @@ Fh search_triangle_guided_bfs(const TriMesh &mesh, const Vec2 &u, const Fh &fho)
 /// Fuzzy search
 ////////////////////////////////////////////////////////////////
 
+static inline double hausdorff_distance(const TriMesh &mesh, const Hh &hh, const Vec2 &u)
+{
+    const auto u0 = get_xy(mesh, mesh.from_vertex_handle(hh));
+    const auto u1 = get_xy(mesh, mesh.to_vertex_handle  (hh));
+    return hausdorff_distance({ u0,u1 }, u);
+}
+
+static inline double hausdorff_distance(const TriMesh &mesh, const Eh &eh, const Vec2 &u)
+{
+    const auto u0 = get_xy(mesh, mesh.from_vertex_handle(mesh.halfedge_handle(eh, 0)));
+    const auto u1 = get_xy(mesh, mesh.to_vertex_handle  (mesh.halfedge_handle(eh, 0)));
+    return hausdorff_distance({ u0, u1 }, u);
+}
+
+static inline double hausdorff_distance(const TriMesh &mesh, const Fh &fh, const Vec2 &u)
+{
+    const auto hh = mesh.halfedge_handle(fh);
+    const auto u0 = get_xy(mesh, mesh.from_vertex_handle(hh));
+    const auto u1 = get_xy(mesh, mesh.to_vertex_handle  (hh));
+    const auto u2 = get_xy(mesh, mesh.to_vertex_handle  (mesh.next_halfedge_handle(hh)));
+    return hausdorff_distance({ u0,u1,u2 }, u);
+}
+
 Fh fuzzy_search_triangle_brute_force(const TriMesh &mesh, const Vec2 &u, const double tol)
 {
     Fh fh {};
@@ -202,12 +186,203 @@ Fh fuzzy_search_triangle_boundary(const TriMesh &mesh, const Vec2 &u, const doub
     return mesh.opposite_face_handle(hh);
 }
 
-Fh search_triangle_brute_force(const TriMesh&, const Vec2&);
+////////////////////////////////////////////////////////////////
+/// Linear path search
+////////////////////////////////////////////////////////////////
 
-Fh search_triangle_local_way(const TriMesh&, const Vec2&, const Fh&);
+static inline PLOW_STATUS intersection_info(const TriMesh &mesh, const Vec2 &u0, const Vec2 &u1, const Hh &hh)
+{
+    const auto v0 = get_xy(mesh, mesh.from_vertex_handle(hh));
+    const auto v1 = get_xy(mesh, mesh.to_vertex_handle  (hh));
 
-Fh search_triangle_guided_bfs(const TriMesh&, const Vec2&, const Fh&);
+    const auto ii = intersection_info(u0, u1, v0, v1);
+    const int ru0 = ii[0];
+    const int ru1 = ii[1];
+    const int rv0 = ii[2];
+    const int rv1 = ii[3];
 
-Fh fuzzy_search_triangle_boundary(const TriMesh&, const Vec2&, const double tol);
+    return
+        (ru0 * ru1 < 0) && (rv0 * rv1 < 0)        ? PLOW_STATUS::EDGE : // intersecting
+        (ru0 * ru1 < 0) && (rv1 == 0 && rv0 != 0) ? PLOW_STATUS::VERT : // v1 lies on (u0,u1)
+        (ru0 != 0 && ru1 == 0) && (rv1 == 0)      ? PLOW_STATUS::VERT : // v1 overlaps u1
+        PLOW_STATUS::MISS; // no intersecting, overlapping, v0 lies on (u0,u1), and other cases
+}
 
-Fh fuzzy_search_triangle_boundary(const TriMesh&, const Vec2&, const double tol);
+//static inline double intersection_param(const TriMesh &mesh, const Vec2 &u0, const Vec2 &u1, const Hh &hh)
+//{
+//    const auto v0 = get_xy(mesh, mesh.from_vertex_handle(hh));
+//    const auto v1 = get_xy(mesh, mesh.to_vertex_handle  (hh));
+//    return intersection_param(u0, u1, v0, v1)[0]; // t in eq: u0 + (u1-u0)*t
+//}
+
+static inline PLOW_STATUS next_primitive(const TriMesh &mesh, const Vec2 &u0, const Vec2 &u1, Hh hho, Hh &hhc, Vh &vhc)
+{
+    auto res { PLOW_STATUS::MISS };
+
+    Hh hh0 = mesh.prev_halfedge_handle(hho);
+    Hh hh1 = mesh.next_halfedge_handle(hho);
+
+    for (Hh hh : { hh0, hh1 })
+    {
+        const auto ii = intersection_info(mesh, u0, u1, hh);
+        if (ii == PLOW_STATUS::MISS) continue;
+
+        res = ii;
+
+        if (ii == PLOW_STATUS::EDGE)
+        {
+            hhc = mesh.opposite_halfedge_handle(hh);
+        }
+        else if (ii == PLOW_STATUS::VERT)
+        {
+            vhc = mesh.to_vertex_handle(hh);
+        }
+    }
+
+    return res;
+}
+
+static inline PLOW_STATUS next_primitive(const TriMesh &mesh, const Vec2 &u0, const Vec2 &u1, Vh vho, Hh &hhc, Vh &vhc)
+{
+    auto res { PLOW_STATUS::MISS };
+
+    const auto uo = get_xy(mesh, vho);
+
+    for (Hh hh : mesh.voh_range(vho)) if (!mesh.is_boundary(hh))
+    {
+        hh = mesh.next_halfedge_handle(hh); // apex edge of v0
+
+        // better use (uo,u1) for intersection testing instead of (u0,u1)
+        const auto ii = intersection_info(mesh, uo, u1, hh);
+        if (ii == PLOW_STATUS::MISS) continue;
+
+        res = ii;
+
+        if (ii == PLOW_STATUS::EDGE)
+        {
+            hhc = mesh.opposite_halfedge_handle(hh);
+        }
+        else if (ii == PLOW_STATUS::VERT)
+        {
+            vhc = mesh.to_vertex_handle(hh);
+        }
+    }
+
+    return res;
+}
+
+void PrimitivePlow::next()
+{
+    if (st_ == PLOW_STATUS::EDGE)
+    {
+        st_ = next_primitive(m_, u0_, u1_, hh_, hh_, vh_);
+    }
+    else if (st_ == PLOW_STATUS::VERT)
+    {
+        st_ = next_primitive(m_, u0_, u1_, vh_, hh_, vh_);
+    }
+}
+
+//////////////// Linear path search initialization ////////////////
+
+static inline TRI_LOC locate(const TriMesh &mesh, const Fh &fh, const Vec2 &u, Hh &hh)
+{
+    Hh hh0 = mesh.halfedge_handle(fh);
+    Hh hh1 = mesh.next_halfedge_handle(hh0);
+    Hh hh2 = mesh.next_halfedge_handle(hh1);
+    const auto u0 = get_xy(mesh, mesh.to_vertex_handle(hh1));
+    const auto u1 = get_xy(mesh, mesh.to_vertex_handle(hh2));
+    const auto u2 = get_xy(mesh, mesh.to_vertex_handle(hh0));
+    const auto loc = exact_locate(u0, u1, u2, u);
+    if (loc == TRI_LOC::E0) { hh = hh0; }
+    if (loc == TRI_LOC::E1) { hh = hh1; }
+    if (loc == TRI_LOC::E2) { hh = hh2; }
+    if (loc == TRI_LOC::V0) { hh = hh1; }
+    if (loc == TRI_LOC::V1) { hh = hh2; }
+    if (loc == TRI_LOC::V2) { hh = hh0; }
+    return loc;
+}
+
+static inline PLOW_STATUS first_primitive(const TriMesh &mesh, const Vec2 &u0, const Vec2 &u1, const Fh &fho, Hh &hhc, Vh &vhc)
+{
+    Hh hho {}; const auto loc = locate(mesh, fho, u0, hho);
+
+    if (loc == TRI_LOC::IN) // u0 is exclusively in the triangle
+    {
+        for (Hh hh : mesh.fh_range(fho))
+        if (intersection_info(mesh, u0, u1, hh) == PLOW_STATUS::MISS)
+        { hhc = hh; break; } // start with any non-intersecting edge
+
+        return PLOW_STATUS::EDGE;
+    }
+
+    if ((int)loc & (int)TRI_LOC::VS) // u0 overlaps any vertex of the triangle
+    {
+        vhc = mesh.to_vertex_handle(hho);
+        return PLOW_STATUS::VERT;
+    }
+
+    if ((int)loc & (int)TRI_LOC::ES) // u0 lies on any edge of the triangle
+    {
+        const auto v0 = get_xy(mesh, mesh.from_vertex_handle(hho));
+        const auto v1 = get_xy(mesh, mesh.to_vertex_handle  (hho));
+        const int r = orientation(v0, v1, u1);
+
+        if (r > 0) // u1 is to the left of (v0,v1)
+        {
+            hhc = hho;
+        }
+        else if (r < 0) // u1 is to the right of (v0,v1)
+        {
+            hhc = mesh.opposite_halfedge_handle(hho);
+        }
+        else if (dot(u1-u0, v1-v0) < 0) // (u0,u1) is anti-linear with (v0,v1)
+        {
+            hhc = hho;
+        }
+        else // if (dot(u1-u0, v1-v0) > 0) // (u0,u1) is colinear with (v0,v1)
+        {
+            hhc = mesh.opposite_halfedge_handle(hho); // even work in boundary case!
+        }
+
+        return PLOW_STATUS::EDGE;
+    }
+
+    return PLOW_STATUS::MISS;
+}
+
+void init(PrimitivePlow &pp, const Fh &fh0, const Vec2 &u0, const Vec2 &u1)
+{
+    Hh hhc {}; Vh vhc {};
+    auto st = first_primitive(pp.mesh(), u0, u1, fh0, hhc, vhc);
+    pp.set_halfedge_handle(hhc);
+    pp.set_vertex_handle(vhc);
+    pp.set_status(st);
+    pp.set_u0(u0);
+    pp.set_u1(u1);
+}
+
+void init(PrimitivePlow &pp, const Fh &fh0, const Vec2 &u1)
+{
+    const auto &mesh = pp.mesh();
+    const auto u0 = centroid(mesh, fh0);
+
+    for (Hh hh : mesh.fh_range(fh0))
+    if (intersection_info(mesh, u0, u1, hh) == PLOW_STATUS::MISS)
+    { pp.set_halfedge_handle(hh); break; }
+
+    pp.set_status(PLOW_STATUS::EDGE);
+    pp.set_u0(u0);
+    pp.set_u1(u1);
+}
+
+void init(PrimitivePlow &pp, const Vh &vh0, const Vh &vh1)
+{
+    const auto &mesh = pp.mesh();
+    const auto u0 = get_xy(mesh, vh0);
+    const auto u1 = get_xy(mesh, vh1);
+    pp.set_status(PLOW_STATUS::VERT);
+    pp.set_vertex_handle(vh0);
+    pp.set_u0(u0);
+    pp.set_u1(u1);
+}
