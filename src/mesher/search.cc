@@ -187,7 +187,7 @@ Fh fuzzy_search_triangle_boundary(const TriMesh &mesh, const Vec2 &u, const doub
 }
 
 ////////////////////////////////////////////////////////////////
-/// Linear path search
+/// Path search
 ////////////////////////////////////////////////////////////////
 
 static inline PLOW_STATUS intersection_info(const TriMesh &mesh, const Vec2 &u0, const Vec2 &u1, const Hh &hh)
@@ -202,18 +202,11 @@ static inline PLOW_STATUS intersection_info(const TriMesh &mesh, const Vec2 &u0,
     const int rv1 = ii[3];
 
     return
-        (ru0 * ru1 < 0) && (rv0 * rv1 < 0)        ? PLOW_STATUS::EDGE : // intersecting
-        (ru0 * ru1 < 0) && (rv1 == 0 && rv0 != 0) ? PLOW_STATUS::VERT : // v1 lies on (u0,u1)
+        (ru0 * ru1 < 0) && (rv0 * rv1 < 0)        ? PLOW_STATUS::EDGE : // intersecting exclusively
+        (ru0 * ru1 < 0) && (rv1 == 0 && rv0 != 0) ? PLOW_STATUS::VERT : // v1 on (u0,u1), v0 is not
         (ru0 != 0 && ru1 == 0) && (rv1 == 0)      ? PLOW_STATUS::VERT : // v1 overlaps u1
-        PLOW_STATUS::MISS; // no intersecting, overlapping, v0 lies on (u0,u1), and other cases
+        PLOW_STATUS::MISS; // no intersection, colinear, v0 lying on (u0,u1), and other cases
 }
-
-//static inline double intersection_param(const TriMesh &mesh, const Vec2 &u0, const Vec2 &u1, const Hh &hh)
-//{
-//    const auto v0 = get_xy(mesh, mesh.from_vertex_handle(hh));
-//    const auto v1 = get_xy(mesh, mesh.to_vertex_handle  (hh));
-//    return intersection_param(u0, u1, v0, v1)[0]; // t in eq: u0 + (u1-u0)*t
-//}
 
 static inline PLOW_STATUS next_primitive(const TriMesh &mesh, const Vec2 &u0, const Vec2 &u1, Hh hho, Hh &hhc, Vh &vhc)
 {
@@ -252,7 +245,7 @@ static inline PLOW_STATUS next_primitive(const TriMesh &mesh, const Vec2 &u0, co
     {
         hh = mesh.next_halfedge_handle(hh); // apex edge of v0
 
-        // better use (uo,u1) for intersection testing instead of (u0,u1)
+        // use (uo,u1) for intersecting test instead of (u0,u1)
         const auto ii = intersection_info(mesh, uo, u1, hh);
         if (ii == PLOW_STATUS::MISS) continue;
 
@@ -311,7 +304,7 @@ static inline PLOW_STATUS first_primitive(const TriMesh &mesh, const Vec2 &u0, c
     {
         for (Hh hh : mesh.fh_range(fho))
         if (intersection_info(mesh, u0, u1, hh) == PLOW_STATUS::MISS)
-        { hhc = hh; break; } // start with any non-intersecting edge
+        { hhc = hh; break; } // then start with any non-intersecting edge
 
         return PLOW_STATUS::EDGE;
     }

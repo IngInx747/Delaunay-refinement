@@ -78,21 +78,20 @@ static inline TRI_LOC locate(const TriMesh &mesh, const Fh &fh, const Vec2 &u, H
     return loc;
 }
 
-static inline void split_edge(TriMesh &mesh, Hh hh, Vh vh)
+static inline void split(TriMesh &mesh, Hh hh, Vh vh)
 {
-    Eh eh  = mesh.edge_handle(hh);
     Vh vh0 = mesh.from_vertex_handle(hh);
     Vh vh1 = mesh.to_vertex_handle  (hh);
 
-    mesh.split_edge_copy(eh, vh);
+    mesh.split_edge_copy(mesh.edge_handle(hh), vh);
 
-    for (auto hdge : mesh.voh_range(vh))
-    if (hdge.to() != vh0)
-    if (hdge.to() != vh1)
-    { set_sharp(mesh, hdge.edge(), false); }
+    for (Hh hh : mesh.voh_range(vh))
+    if (mesh.to_vertex_handle(hh) != vh0)
+    if (mesh.to_vertex_handle(hh) != vh1)
+    { set_sharp(mesh, mesh.edge_handle(hh), false); }
 }
 
-static inline void split_face(TriMesh &mesh, Fh fh, Vh vh)
+static inline void split(TriMesh &mesh, Fh fh, Vh vh)
 {
     mesh.split_copy(fh, vh);
 }
@@ -189,8 +188,8 @@ static int insert_vertices(TriMesh &mesh, std::unordered_map<Vh, Vh> &dups)
         { dups[vh] = mesh.to_vertex_handle(hh); continue; }
 
         // insert the point into the triangle or onto the edge
-        if (loc == TRI_LOC::IN) split_face(mesh, fh, vh);
-        else                    split_edge(mesh, hh, vh);
+        if (loc == TRI_LOC::IN) split(mesh, fh, vh);
+        else                    split(mesh, hh, vh);
 
         // edges to flip
         Eh ehs[4]; int ne {};
@@ -207,10 +206,6 @@ static int insert_vertices(TriMesh &mesh, std::unordered_map<Vh, Vh> &dups)
 
     return n_new_vertices;
 }
-
-////////////////////////////////////////////////////////////////
-/// Local search
-////////////////////////////////////////////////////////////////
 
 ////////////////////////////////////////////////////////////////
 /// Constraints

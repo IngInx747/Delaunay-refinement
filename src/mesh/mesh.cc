@@ -1,3 +1,5 @@
+#include <unordered_map>
+#include <unordered_set>
 #include "mesh.hh"
 #include "mesh.io.hh"
 
@@ -63,34 +65,68 @@ std::vector<int> dump_handle(const PolyMesh &mesh, const Fh &fh, const int offse
 ////////////////////////////////////////////////////////////////
 
 template <class MeshT>
-int dump_mesh_local_path(const MeshT &mesh, const char *local_name)
+static inline std::string get_path(const MeshT &mesh)
 {
     std::string filename {};
 
-    // Save mesh data under <mesh path>, or current path if path is empty.
     if (hasProperty<Mh, std::string>(mesh, var_m_path()))
     {
         filename.append(getProperty<Mh, std::string>(mesh, var_m_path())());
         filename.append("/");
     }
 
-    filename.append(local_name);
-
-    return save_mesh(mesh, filename.c_str());
+    return filename;
 }
 
 int dump_mesh(const TriMesh &mesh, const char *local_name)
 {
-    return dump_mesh_local_path(mesh, local_name);
+    return save_mesh(mesh, get_path(mesh).append(local_name).c_str());
 }
 
 int dump_mesh(const PolyMesh &mesh, const char *local_name)
 {
-    return dump_mesh_local_path(mesh, local_name);
+    return save_mesh(mesh, get_path(mesh).append(local_name).c_str());
 }
 
 ////////////////////////////////////////////////////////////////
-/// Dump primitive
+/// Dump primitives
 ////////////////////////////////////////////////////////////////
 
-// [TODO]
+int dump_faces(const TriMesh &mesh, const std::vector<Fh> &faces, const char *local_name)
+{
+    std::vector<Vec2> vs {};
+    std::vector<Int3> fs {};
+
+    int nv {};
+    std::unordered_set<Fh> fset {};
+    std::unordered_map<Vh, int> vids {};
+
+    for (Fh fh : faces) { if (fh.is_valid()) if (!is_deleted(mesh, fh)) { fset.insert(fh);
+    for (Vh vh : mesh.fv_range(fh)) if (!vids.count(vh)) { vids[vh] = nv++; } } }
+
+    vs.resize(nv);
+
+    for (const auto &vid : vids)
+    {
+        Vh vh = vid.first;
+        const int id = vid.second;
+        vs[id] = get_xy(mesh, vh);
+    }
+
+    for (Fh fh : fset)
+    {
+        Vh vh0 = mesh.from_vertex_handle(mesh.halfedge_handle(fh));
+        Vh vh1 = mesh.to_vertex_handle  (mesh.halfedge_handle(fh));
+        Vh vh2 = mesh.to_vertex_handle  (mesh.next_halfedge_handle(mesh.halfedge_handle(fh)));
+        const int i0 = vids[vh0];
+        const int i1 = vids[vh1];
+        const int i2 = vids[vh2];
+        fs.emplace_back(i0, i1, i2);
+    }
+
+    return save_mesh(
+        (const double *)vs.data(), (int)vs.size(),
+        (const int    *)fs.data(), (int)fs.size(),
+        nullptr, 0,
+        get_path(mesh).append(local_name).c_str());
+}

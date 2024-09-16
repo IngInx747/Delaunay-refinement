@@ -37,6 +37,31 @@ struct EuclideanDelaunay
 };
 
 ////////////////////////////////////////////////////////////////
+/// Containers
+////////////////////////////////////////////////////////////////
+
+template <class T>
+struct unique_vector
+{
+    inline void push_back(const T &v)
+    { if (!vt.count(v)) { vs.push_back(v); vt.insert(v); } }
+
+    inline void pop_back()
+    { vt.erase(vs.back()); vs.pop_back(); }
+
+    inline void clear()
+    { vs.clear(); vt.clear(); }
+
+    inline const std::vector<T> &vector() const
+    { return vs; }
+
+protected:
+
+    std::vector<T> vs;
+    std::unordered_set<T> vt;
+};
+
+////////////////////////////////////////////////////////////////
 /// Utilities
 ////////////////////////////////////////////////////////////////
 
@@ -92,75 +117,82 @@ static inline Vec2 circumcenter(const TriMesh &mesh, const Fh &fh)
     return circumcenter(u0, u1, u2);
 }
 
-static inline void split_edge(TriMesh &mesh, Hh hh, Vh vh)
+static inline bool is_exterior(const TriMesh &mesh, const Fh &fh)
 {
-    Eh eh  = mesh.edge_handle(hh);
+    return is_hidden(mesh, fh);
+}
+
+static inline bool is_exterior(const TriMesh &mesh, const Eh &eh)
+{
+    return is_hidden(mesh, eh);
+}
+
+static inline bool is_exterior(const TriMesh &mesh, const Hh &hh)
+{
+    return mesh.is_boundary(hh) || is_hidden(mesh, mesh.face_handle(hh));
+}
+
+static inline void split(TriMesh &mesh, Hh hh, Vh vh)
+{
     Vh vh0 = mesh.from_vertex_handle(hh);
     Vh vh1 = mesh.to_vertex_handle  (hh);
 
-    mesh.split_edge_copy(eh, vh);
+    mesh.split_edge_copy(mesh.edge_handle(hh), vh);
 
-    for (auto hdge : mesh.voh_range(vh))
-    if (hdge.to() != vh0)
-    if (hdge.to() != vh1)
-    { set_sharp(mesh, hdge.edge(), false); }
+    // OpenMesh copies property to all 4 new edges even 2 of
+    // which are not sharp. Unsharp the 2 edges accordingly.
+    for (Hh hh : mesh.voh_range(vh))
+    if (mesh.to_vertex_handle(hh) != vh0)
+    if (mesh.to_vertex_handle(hh) != vh1)
+    { set_sharp(mesh, mesh.edge_handle(hh), false); }
+
+    // One of 2 new diagonal edges can be in the exterior
+    // region and hence should be hidden.
+    for (Eh eh : mesh.ve_range(vh))
+    if (is_exterior(mesh, mesh.halfedge_handle(eh, 0)))
+    if (is_exterior(mesh, mesh.halfedge_handle(eh, 1)))
+    { set_hidden(mesh, eh, true); }
 }
 
-static inline void split_face(TriMesh &mesh, Fh fh, Vh vh)
+static inline void split(TriMesh &mesh, Fh fh, Vh vh)
 {
     mesh.split_copy(fh, vh);
 }
 
-////////////////////////////////////////////////////////////////
-/// Local search
-////////////////////////////////////////////////////////////////
-
-static Fh search_primitive(const TriMesh &mesh, const Vec2 &u1, const Fh &fh0, std::vector<Eh> &ehs)
+static inline Vh collapse(TriMesh &mesh, Vh vh)
 {
-    if (is_inside(mesh, fh0, u1)) return fh0;
+    assert(!mesh.is_boundary(vh));
 
-    PrimitivePlow pp(mesh);
+    Hh hh {}; // to collapse
 
-    init(pp, fh0, u1); // setup the plow
-
-    const int max_n_iter = (int)mesh.n_edges(); int n_iter {};
-
-    for (pp.next(); n_iter < max_n_iter; pp.next(), ++n_iter)
+    for (Hh hi : mesh.voh_range(vh))
     {
-        if (pp.status() == PLOW_STATUS::EDGE) // record encroached segments
+        Vh vi = mesh.to_vertex_handle(hi);
+        const auto u0 = get_xy(mesh, vi);
+        bool convex { true };
+
+        for (Hh hj : mesh.voh_range(vh)) // check n-2 triangles
         {
-            Eh eh = mesh.edge_handle(pp.halfedge_handle());
-            if (is_sharp(mesh, eh)) { ehs.push_back(eh); }
-        }
-        else if (pp.status() == PLOW_STATUS::VERT)
-        {
-            for (Eh eh : mesh.ve_range(pp.vertex_handle()))
-            if (is_sharp(mesh, eh)) { ehs.push_back(eh); }
+            Vh vj = mesh.to_vertex_handle(hj);
+            Vh vk = mesh.to_vertex_handle(mesh.next_halfedge_handle(hj));
+            if (vj == vi || vk == vi) continue;
+
+            const auto u1 = get_xy(mesh, vj);
+            const auto u2 = get_xy(mesh, vk);
+            const int r = orientation(u0, u1, u2);
+            if (r <= 0) { convex = false; break; }
         }
 
-        Fh fh {}; // check if the target is reached
-
-        if (pp.status() == PLOW_STATUS::EDGE)
-        {
-            fh = mesh.face_handle(pp.halfedge_handle());
-        }
-        else if (pp.status() == PLOW_STATUS::VERT)
-        {
-            fh = mesh.face_handle(mesh.halfedge_handle(pp.vertex_handle()));
-        }
-
-        if (fh.is_valid() && is_inside(mesh, fh, u1))
-        {
-            return fh;
-        }
-
-        if (pp.status() == PLOW_STATUS::MISS) // searching lost in vain, for some reasons
-        {
-            break;
-        }
+        if (convex) { hh = hi; break; }
     }
 
-    return Fh {};
+    assert(hh.is_valid());
+
+    Vh vi = mesh.to_vertex_handle(hh);
+
+    mesh.collapse(hh);
+
+    return vi;
 }
 
 ////////////////////////////////////////////////////////////////
@@ -169,7 +201,6 @@ static Fh search_primitive(const TriMesh &mesh, const Vec2 &u1, const Fh &fh0, s
 
 struct Event // either a triangle or a segment
 {
-    Hh hh;
     Vh vh0, vh1, vh2;
 };
 
@@ -178,11 +209,10 @@ struct std::hash<Event>
 {
     size_t operator()(const Event &event) const noexcept
     {
-        size_t h0 = hash<Hh>{}(event.hh);
-        size_t h1 = hash<Vh>{}(event.vh0);
-        size_t h2 = hash<Vh>{}(event.vh1);
-        size_t h3 = hash<Vh>{}(event.vh2);
-        return ((((h0 ^ h1) << 1) ^ h2) << 1) ^ h3;
+        size_t h0 = hash<Vh>{}(event.vh0);
+        size_t h1 = hash<Vh>{}(event.vh1);
+        size_t h2 = hash<Vh>{}(event.vh2);
+        return ((h0 ^ h1) << 1) ^ h2;
     }
 };
 
@@ -192,51 +222,45 @@ struct std::equal_to<Event>
     bool operator()(const Event &lhs, const Event &rhs) const noexcept
     {
         return
-            lhs.hh  == rhs.hh  &&
             lhs.vh0 == rhs.vh0 &&
             lhs.vh1 == rhs.vh1 &&
             lhs.vh2 == rhs.vh2;
         }
 };
 
-static inline bool is_triangle(const TriMesh &mesh, const Event &event)
+static inline bool is_triangle(const Event &event)
 {
-    // check if the event type is triangle
-    if (!event.vh2.is_valid()) return false;
-
-    // check if the event was not changed
-    if (mesh.is_boundary(event.hh)) return false;
-
-    Hh hh = event.hh;
-    if (mesh.to_vertex_handle(hh) != event.vh0)
-        hh = mesh.next_halfedge_handle(hh);
-    if (mesh.to_vertex_handle(hh) != event.vh0)
-        hh = mesh.next_halfedge_handle(hh);
-    if (mesh.to_vertex_handle(hh) != event.vh0)
-        return false;
-
-    hh = mesh.next_halfedge_handle(hh);
-    if (mesh.to_vertex_handle(hh) != event.vh1)
-        return false;
-
-    hh = mesh.next_halfedge_handle(hh);
-    if (mesh.to_vertex_handle(hh) != event.vh2)
-        return false;
-
-    return true;
+    return event.vh2.is_valid();
 }
 
-static inline bool is_segment(const TriMesh &mesh, const Event &event)
+static inline bool is_segment(const Event &event)
 {
-    // check if the event type is segment
-    if (event.vh2.is_valid()) return false;
+    return !event.vh2.is_valid();
+}
 
-    // check if the event was not changed
-    Hh hh = event.hh;
-    Vh vh0 = mesh.from_vertex_handle(hh);
-    Vh vh1 = mesh.to_vertex_handle  (hh);
+static inline Fh get_triangle(const TriMesh &mesh, const Event &event)
+{
+    if (is_deleted(mesh, event.vh0) ||
+        is_deleted(mesh, event.vh1) ||
+        is_deleted(mesh, event.vh2))
+        return Fh {};
 
-    return vh0 == event.vh0 && vh1 == event.vh1;
+    Hh hh = mesh.find_halfedge(event.vh0, event.vh1);
+    if (!hh.is_valid()) return Fh {};
+
+    Vh vh2 = mesh.to_vertex_handle(mesh.next_halfedge_handle(hh));
+    if (vh2 != event.vh2) return Fh {};
+
+    return mesh.face_handle(hh);
+}
+
+static inline Hh get_segment(const TriMesh &mesh, const Event &event)
+{
+    if (is_deleted(mesh, event.vh0) ||
+        is_deleted(mesh, event.vh1))
+        return Hh {};
+
+    return mesh.find_halfedge(event.vh0, event.vh1);
 }
 
 static inline Event make_triangle(const TriMesh &mesh, Fh fh)
@@ -247,40 +271,15 @@ static inline Event make_triangle(const TriMesh &mesh, Fh fh)
     Vh vh0 = mesh.to_vertex_handle(hh);
     Vh vh1 = mesh.to_vertex_handle(hi);
     Vh vh2 = mesh.to_vertex_handle(hj);
-    return { hh, vh0, vh1, vh2 };
+    return { vh0, vh1, vh2 };
 }
 
 static inline Event make_segment(const TriMesh &mesh, Hh hh)
 {
     Vh vh0 = mesh.from_vertex_handle(hh);
     Vh vh1 = mesh.to_vertex_handle  (hh);
-    return { hh, vh0, vh1, Vh {} };
+    return { vh0, vh1, Vh {} };
 }
-
-////////////////////////////////////////////////////////////////
-/// Some weird data structures
-////////////////////////////////////////////////////////////////
-
-template <class T>
-struct unique_vector
-{
-    inline void push_back(const T &v)
-    { if (!vt.count(v)) { vs.push_back(v); vt.insert(v); } }
-
-    inline void pop_back()
-    { vt.erase(vs.back()); vs.pop_back(); }
-
-    inline void clear()
-    { vs.clear(); vt.clear(); }
-
-    inline const std::vector<T> &vector() const
-    { return vs; }
-
-protected:
-
-    std::vector<T> vs;
-    std::unordered_set<T> vt;
-};
 
 ////////////////////////////////////////////////////////////////
 /// Segment encroachment
@@ -291,11 +290,6 @@ static inline double apex_squared_cosine(const double min_angle)
     const double cs0 = cos(min_angle); // cos(t)
     const double cs1 = cs0*cs0*2. - 1; // cos(pi - 2t)
     return cs1*cs1;
-}
-
-static inline bool is_exterior(const TriMesh &mesh, const Hh &hh)
-{
-    return mesh.is_boundary(hh) || is_hidden(mesh, mesh.face_handle(hh));
 }
 
 static inline bool is_encroached(const TriMesh &mesh, const Hh &hh, const double cs2)
@@ -329,9 +323,11 @@ static inline bool is_bad_triangle(
     const double max_len2,
     const double max_twoa)
 {
-    Hh hh = mesh.halfedge_handle(fh);
-    Hh hi = mesh.next_halfedge_handle(hh);
-    Hh hj = mesh.prev_halfedge_handle(hh);
+    const Hh hh[3] {
+        mesh.halfedge_handle(fh),
+        mesh.next_halfedge_handle(mesh.halfedge_handle(fh)),
+        mesh.prev_halfedge_handle(mesh.halfedge_handle(fh)),
+    };
 
     //      1      //
     //  0  / \  2  //
@@ -339,36 +335,61 @@ static inline bool is_bad_triangle(
     //   2-----0   //
     //      1      //
 
-    const auto u0 = get_xy(mesh, mesh.to_vertex_handle(hh));
-    const auto u1 = get_xy(mesh, mesh.to_vertex_handle(hi));
-    const auto u2 = get_xy(mesh, mesh.to_vertex_handle(hj));
+    const Vec2 u[3] {
+        get_xy(mesh, mesh.to_vertex_handle(hh[1])),
+        get_xy(mesh, mesh.to_vertex_handle(hh[2])),
+        get_xy(mesh, mesh.to_vertex_handle(hh[0])),
+    };
 
-    const auto d0 = u2 - u1;
-    const auto d1 = u0 - u2;
-    const auto d2 = u1 - u0;
+    const Vec2 d[3] {
+        u[2] - u[1],
+        u[0] - u[2],
+        u[1] - u[0],
+    };
 
-    const double dd0 = dot(d0, d0); // len^2 of edge 0
-    const double dd1 = dot(d1, d1); // len^2 of edge 1
-    const double dd2 = dot(d2, d2); // len^2 of edge 2
+    const double twoa = fabs(cross(-d[1], d[2])); // area*2
 
-    const double dp12 = dot(-d1, d2); // dot product at corner 0
-    const double dp20 = dot(-d2, d0); // dot product at corner 1
-    const double dp01 = dot(-d0, d1); // dot product at corner 2
+    // check area upper bound
+    if (twoa > max_twoa) return true;
 
-    const double cs0 = (dp12*dp12)/(dd1*dd2); // cos^2 of corner 0
-    const double cs1 = (dp20*dp20)/(dd2*dd0); // cos^2 of corner 1
-    const double cs2 = (dp01*dp01)/(dd0*dd1); // cos^2 of corner 2
+    const double dd[3] {
+        dot(d[0], d[0]), // len^2 of edge 0
+        dot(d[1], d[1]), // len^2 of edge 1
+        dot(d[2], d[2]), // len^2 of edge 2
+    };
 
-    const double twoa = fabs(cross(-d1, d2)); // area*2
+    // check length upper bound
+    if (dd[0] > max_len2 ||
+        dd[1] > max_len2 ||
+        dd[2] > max_len2 ) return true;
 
-    return
-        max_cos2 < cs0 ||
-        max_cos2 < cs1 ||
-        max_cos2 < cs2 ||
-        max_len2 < dd0 ||
-        max_len2 < dd1 ||
-        max_len2 < dd2 ||
-        max_twoa < twoa;
+    const double dp[3] {
+        dot(-d[1], d[2]), // dot product at corner 0
+        dot(-d[2], d[0]), // dot product at corner 1
+        dot(-d[0], d[1]), // dot product at corner 2
+    };
+
+    // use the shortest edge as base
+    double ddb = dd[0]; int i = 0;
+    if (ddb > dd[1]) { ddb = dd[1]; i = 1; }
+    if (ddb > dd[2]) { ddb = dd[2]; i = 2; }
+
+    int j = (i + 1) % 3; // leg 1
+    int k = (i + 2) % 3; // leg 2
+
+    const double ratio = dd[j] / dd[k]; // length ratio of two legs of the corner
+
+    if (is_sharp(mesh, mesh.edge_handle(hh[j])) &&
+        is_sharp(mesh, mesh.edge_handle(hh[k])) &&
+        fabs(ratio - 1.0) < 1e-3) return false;
+
+    //if (is_sharp(mesh, mesh.edge_handle(hh[j])) ||
+    //    is_sharp(mesh, mesh.edge_handle(hh[k])) ) return false;
+
+    const double cs2 = (dp[i]*dp[i])/(dd[j]*dd[k]); // cos^2 of the smallest corner angle
+
+    // check angle lower bound
+    return cs2 > max_cos2;
 }
 
 struct BadTriangle
@@ -403,12 +424,12 @@ static inline Vec2 splitting_position(const TriMesh &mesh, Hh hh)
     Hh hi = mesh.opposite_halfedge_handle(hh);
 
     bool is_acute_v0 = 
-        !mesh.is_boundary(hh) && is_sharp(mesh, mesh.edge_handle(mesh.prev_halfedge_handle(hh))) ||
-        !mesh.is_boundary(hi) && is_sharp(mesh, mesh.edge_handle(mesh.next_halfedge_handle(hi)));
+        !is_exterior(mesh, hh) && is_sharp(mesh, mesh.edge_handle(mesh.prev_halfedge_handle(hh))) ||
+        !is_exterior(mesh, hi) && is_sharp(mesh, mesh.edge_handle(mesh.next_halfedge_handle(hi))) ;
 
     bool is_acute_v1 = 
-        !mesh.is_boundary(hh) && is_sharp(mesh, mesh.edge_handle(mesh.next_halfedge_handle(hh))) ||
-        !mesh.is_boundary(hi) && is_sharp(mesh, mesh.edge_handle(mesh.prev_halfedge_handle(hi)));
+        !is_exterior(mesh, hh) && is_sharp(mesh, mesh.edge_handle(mesh.next_halfedge_handle(hh))) ||
+        !is_exterior(mesh, hi) && is_sharp(mesh, mesh.edge_handle(mesh.prev_halfedge_handle(hi))) ;
 
     if (is_acute_v0 || is_acute_v1)
     {
@@ -438,22 +459,28 @@ static int split_segments(TriMesh &mesh, const Encroachment &encroached)
     // the diametral circle of the segment should be deleted.
     // [TODO]
 
-    for (Eh eh : mesh.edges()) if (is_sharp(mesh, eh))
+    for (Eh eh : mesh.edges()) { if (is_sharp(mesh, eh))
     for (Hh hh : mesh.eh_range(eh)) if (encroached(mesh, hh))
-    { events.push_back(make_segment(mesh, hh)); }
+    { events.push_back(make_segment(mesh, hh)); } }
 
     while (!events.empty())
     {
         auto event = events.front(); events.pop_front();
 
-        if (is_segment(mesh, event))
+        if (is_segment(event))
         {
+            // restore the segment from the event
+            Hh ho = get_segment(mesh, event);
+
+            // the segment was gone during refining
+            if (!ho.is_valid()) continue;
+
             // find a position for splitting
-            const auto u = splitting_position(mesh, event.hh);
+            const auto u = splitting_position(mesh, ho);
 
             // split the segment
             Vh vo = mesh.new_vertex({ u[0], u[1], 0 });
-            split_edge(mesh, event.hh, vo);
+            split(mesh, ho, vo);
 
             // edges to flip
             Eh eos[4]; int ne {};
@@ -469,21 +496,68 @@ static int split_segments(TriMesh &mesh, const Encroachment &encroached)
 
             // record encountered edges while testing Delaunayhood
             for (Eh eh = delaunifier.next(); eh.is_valid() && n_iter < max_n_iter; eh = delaunifier.next(), ++n_iter)
-            { ehs.push_back(eh); }
+            { if (!is_exterior(mesh, eh)) ehs.push_back(eh); }
 
             // check encroachment of encountered segments
-            for (Eh eh : ehs.vector()) if (is_sharp(mesh, eh))
+            for (Eh eh : ehs.vector()) { if (is_sharp(mesh, eh))
             for (Hh hh : mesh.eh_range(eh)) if (encroached(mesh, hh))
-            { events.push_back(make_segment(mesh, hh)); }
+            { events.push_back(make_segment(mesh, hh)); } }
 
             // check encroachment of two new segments afterwards
-            for (Eh eh : mesh.ve_range(vo)) if (is_sharp(mesh, eh))
+            for (Eh eh : mesh.ve_range(vo)) { if (is_sharp(mesh, eh))
             for (Hh hh : mesh.eh_range(eh)) if (encroached(mesh, hh))
-            { events.push_back(make_segment(mesh, hh)); }
+            { events.push_back(make_segment(mesh, hh)); } }
         }
     }
 
     return 0;
+}
+
+static Fh search_primitive(const TriMesh &mesh, const Vec2 &u1, const Fh &fh0, std::vector<Eh> &ehs)
+{
+    if (is_inside(mesh, fh0, u1)) return fh0;
+
+    PrimitivePlow pp(mesh);
+
+    init(pp, fh0, u1); // setup the plow
+
+    const int max_n_iter = (int)mesh.n_edges(); int n_iter {};
+
+    for (pp.next(); n_iter < max_n_iter; pp.next(), ++n_iter)
+    {
+        if (pp.status() == PLOW_STATUS::EDGE) // record encroached segments
+        {
+            Eh eh = mesh.edge_handle(pp.halfedge_handle());
+            if (is_sharp(mesh, eh)) { ehs.push_back(eh); }
+        }
+        else if (pp.status() == PLOW_STATUS::VERT)
+        {
+            for (Eh eh : mesh.ve_range(pp.vertex_handle()))
+            if (is_sharp(mesh, eh)) { ehs.push_back(eh); }
+        }
+
+        Fh fh {}; // check if the target is reached
+
+        if (pp.status() == PLOW_STATUS::EDGE)
+        {
+            fh = mesh.face_handle(pp.halfedge_handle());
+        }
+        else if (pp.status() == PLOW_STATUS::VERT)
+        {
+            fh = mesh.face_handle(mesh.halfedge_handle(pp.vertex_handle()));
+        }
+        if (fh.is_valid() && is_inside(mesh, fh, u1))
+        {
+            return fh;
+        }
+
+        if (pp.status() == PLOW_STATUS::MISS) // searching lost in vain, for some reasons
+        {
+            break;
+        }
+    }
+
+    return Fh {};
 }
 
 static int split_interior(TriMesh &mesh, const BadTriangle &bad_triangle, const Encroachment &encroached)
@@ -502,33 +576,42 @@ static int split_interior(TriMesh &mesh, const BadTriangle &bad_triangle, const 
     {
         auto event = events.front(); events.pop_front();
 
-        if (is_triangle(mesh, event))
+        if (is_triangle(event))
         {
+            // restore the triangle from the event
+            Fh fo = get_triangle(mesh, event);
+
+            // the triangle was gone during refining
+            if (!fo.is_valid()) continue;
+
             // find the circumcenter of the problematic triangle
-            const auto u = circumcenter(mesh, mesh.face_handle(event.hh));
+            const auto u = circumcenter(mesh, fo);
 
             // the segments that were run over during searching
             std::vector<Eh> ess {};
 
             // search for the primitive at which the circumcenter locates
-            Fh fho = search_primitive(mesh, u, mesh.face_handle(event.hh), ess);
+            fo = search_primitive(mesh, u, fo, ess);
 
             if (!ess.empty()) // some segments are in the way hence encroached
             {
                 std::reverse(ess.begin(), ess.end());
 
-                for (Eh eh : ess) for (Hh hh : mesh.eh_range(eh)) if (!is_exterior(mesh, hh))
-                { events.push_front(make_segment(mesh, hh)); }
+                for (Eh eh : ess) { for (Hh hh : mesh.eh_range(eh)) if (!is_exterior(mesh, hh))
+                { events.push_front(make_segment(mesh, hh)); } }
+
+                //for (Hh hh : mesh.eh_range(ess.front())) if (!is_exterior(mesh, hh))
+                //{ events.push_front(make_segment(mesh, hh)); }
 
                 continue; // abort splitting
             }
 
             // skip any point out of domain (won't happen as some segments must
             // be encroached and splitting must have been aborted.)
-            if (!fho.is_valid() || is_hidden(mesh, fho)) continue;
+            if (!fo.is_valid() || is_exterior(mesh, fo)) continue;
 
             // at which part of the triangle the point locates
-            Hh hho {}; const auto loc = locate(mesh, fho, u, hho);
+            Hh ho {}; const auto loc = locate(mesh, fo, u, ho);
 
             // skip any vertex with invalid location (won't happen)
             if (loc == TRI_LOC::OUT) continue;
@@ -538,15 +621,15 @@ static int split_interior(TriMesh &mesh, const BadTriangle &bad_triangle, const 
             if ((int)loc & (int)TRI_LOC::VS) continue;
 
             // allocate a new vertex
-            Vh vho = mesh.new_vertex({ u[0], u[1], 0 });
+            Vh vo = mesh.new_vertex({ u[0], u[1], 0 });
 
             // insert the vertex into the triangle or onto the edge
-            if (loc == TRI_LOC::IN) split_face(mesh, fho, vho);
-            else                    split_edge(mesh, hho, vho);
+            if (loc == TRI_LOC::IN) split(mesh, fo, vo);
+            else                    split(mesh, ho, vo);
 
             // edges to flip
             Eh eos[4]; int ne {};
-            for (auto hdge : mesh.voh_range(vho))
+            for (auto hdge : mesh.voh_range(vo))
                 if (!hdge.next().edge().is_boundary())
                     eos[ne++] = hdge.next().edge();
 
@@ -558,36 +641,96 @@ static int split_interior(TriMesh &mesh, const BadTriangle &bad_triangle, const 
 
             // record encountered edges while testing Delaunayhood
             for (Eh eh = delaunifier.next(); eh.is_valid() && n_iter < max_n_iter; eh = delaunifier.next(), ++n_iter)
-            { ehs.push_back(eh); }
+            { if (!is_exterior(mesh, eh)) ehs.push_back(eh); }
 
             // potentially encroached segments
             std::vector<Hh> hss {};
 
             // check encroachment over encountered segments
-            for (Eh eh : ehs.vector()) if (is_sharp(mesh, eh)) for (Hh hh : mesh.eh_range(eh)) if (encroached(mesh, hh))
-            { hss.push_back(hh); }
+            for (Eh eh : ehs.vector()) { if (is_sharp(mesh, eh))
+            for (Hh hh : mesh.eh_range(eh)) if (encroached(mesh, hh))
+            { hss.push_back(hh); } }
 
             if (!hss.empty()) // some segments are encroached
             {
                 for (Hh hh : hss) { events.push_front(make_segment(mesh, hh)); }
 
                 // undo vertex insertion
-                // [TODO]
+                Vh vc = collapse(mesh, vo);
 
-                // check quality over affected triangles
-                // [TODO]
+                // edges to flip
+                std::vector<Eh> ecs {};
+                for (Eh eh : mesh.ve_range(vc)) ecs.push_back(eh);
 
-                continue; // abort splitting
+                // maintain Delaunayhood
+                delaunifier.reset(); delaunifier.enqueue(ecs.data(), (int)ecs.size()); int n_iter {};
+
+                ehs.clear();
+
+                // record encountered edges while testing Delaunayhood
+                for (Eh eh = delaunifier.next(); eh.is_valid() && n_iter < max_n_iter; eh = delaunifier.next(), ++n_iter)
+                if (!is_exterior(mesh, eh)) { ehs.push_back(eh); }
             }
 
-            // check quality of the encountered triangles
-            for (Eh eh : ehs.vector()) for (Fh fh : mesh.ef_range(eh)) if (fh.is_valid())
-            if (!is_hidden(mesh, fh)) if (bad_triangle(mesh, fh))
-            { events.push_back(make_triangle(mesh, fh)); }
+            // encountered triangles
+            unique_vector<Fh> fhs {};
+            for (Eh eh : ehs.vector()) { for (Fh fh : mesh.ef_range(eh))
+            if (fh.is_valid()) if (!is_exterior(mesh, fh)) { fhs.push_back(fh); } }
+
+            // check quality of these triangles
+            for (Fh fh : fhs.vector()) { if (bad_triangle(mesh, fh))
+            { events.push_back(make_triangle(mesh, fh)); } }
         }
 
-        else if (is_segment(mesh, event))
+        else if (is_segment(event))
         {
+            // restore the segment from the event
+            Hh ho = get_segment(mesh, event);
+
+            // the segment was gone during refining
+            if (!ho.is_valid()) continue;
+
+            // find a position for splitting
+            const auto u = splitting_position(mesh, ho);
+
+            // split the segment
+            Vh vo = mesh.new_vertex({ u[0], u[1], 0 });
+            split(mesh, ho, vo);
+
+            // edges to flip
+            Eh eos[4]; int ne {};
+            for (auto hdge : mesh.voh_range(vo))
+                if (!hdge.next().edge().is_boundary())
+                    eos[ne++] = hdge.next().edge();
+
+            // maintain Delaunayhood
+            delaunifier.reset(); delaunifier.enqueue(eos, ne); int n_iter {};
+
+            // encountered edges
+            unique_vector<Eh> ehs {};
+
+            // record encountered edges while testing Delaunayhood
+            for (Eh eh = delaunifier.next(); eh.is_valid() && n_iter < max_n_iter; eh = delaunifier.next(), ++n_iter)
+            { if (!is_exterior(mesh, eh)) ehs.push_back(eh); }
+
+            // check encroachment of encountered segments
+            for (Eh eh : ehs.vector()) { if (is_sharp(mesh, eh))
+            for (Hh hh : mesh.eh_range(eh)) if (encroached(mesh, hh))
+            { events.push_front(make_segment(mesh, hh)); } }
+
+            // check encroachment of two new segments afterwards
+            for (Eh eh : mesh.ve_range(vo)) { if (is_sharp(mesh, eh))
+            for (Hh hh : mesh.eh_range(eh)) if (encroached(mesh, hh))
+            { events.push_front(make_segment(mesh, hh)); } }
+
+            // encountered triangles
+            unique_vector<Fh> fhs {};
+            for (Eh eh : ehs.vector()) { for (Fh fh : mesh.ef_range(eh))
+            if (fh.is_valid()) if (!is_exterior(mesh, fh)) { fhs.push_back(fh); } }
+
+            // check quality of these triangles
+            for (Fh fh : fhs.vector()) { if (bad_triangle(mesh, fh))
+            { events.push_back(make_triangle(mesh, fh)); } }
         }
     }
 
@@ -609,6 +752,8 @@ int refine(TriMesh &mesh, const double min_angle)
     err = split_segments(mesh, encroached);
 
     err = split_interior(mesh, bad_triangle, encroached);
+
+    mesh.garbage_collection();
 
     return err;
 }

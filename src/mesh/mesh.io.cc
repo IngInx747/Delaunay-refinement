@@ -226,6 +226,62 @@ int save_poly(
     return 0;
 }
 
+int read_mesh(
+    std::vector<Vec2> &vs,
+    std::vector<Int3> &fs,
+    std::vector<Int2> &es,
+    const char *filename,
+    const int offset)
+{
+    // [TODO]
+
+    return IO_ERR_TYPE::UNSUPPORTED_FORMAT;
+}
+
+int save_mesh(
+    const double *vs, const int nv,
+    const int    *fs, const int nf,
+    const int    *es, const int ne,
+    const char* filename,
+    const int offset,
+    const std::streamsize prec)
+{
+    std::ofstream out(filename, std::ios::out);
+    if (!out) return IO_ERR_TYPE::CANNOT_OPEN;
+
+    out << std::defaultfloat << std::setprecision(prec);
+
+    out << "MeshVersionFormatted 1\n\nDimension\n2\n\n";
+
+    out << "Vertices\n" << nv << "\n";
+
+    for (int i = 0; i < nv; ++i)
+        out << vs[i*2 + 0] << " "
+            << vs[i*2 + 1] << " "
+            << " 0\n";
+
+    out << "Triangles\n" << nf << "\n";
+
+    for (int i = 0; i < nf; ++i)
+        out << fs[i*3 + 0] + offset << " "
+            << fs[i*3 + 1] + offset << " "
+            << fs[i*3 + 2] + offset << " "
+            << " 1\n";
+
+    out << "Edges\n" << ne << "\n";
+
+    for (int i = 0; i < ne; ++i)
+    {
+        out << es[i*2 + 0] + offset << " "
+            << es[i*2 + 1] + offset << " "
+            << " -1\n";
+    }
+
+    out << "End\n";
+
+    return IO_ERR_TYPE::NO_ERROR;
+}
+
 ////////////////////////////////////////////////////////////////
 /// Mesh IO
 ////////////////////////////////////////////////////////////////
@@ -332,8 +388,8 @@ inline int read_mesh_dot_mesh(MeshT &mesh, const char *filename)
     std::ifstream in(filename, std::ios::in);
     if (!in) return IO_ERR_TYPE::CANNOT_OPEN;
 
-    std::vector<std::tuple<int, int, int>> face_list;
-    std::vector<std::tuple<int, int>> edge_list;
+    std::vector<Int3> fs;
+    std::vector<Int2> es;
     int ver {}, dim {}, nv {}, nf {}, ne {};
 
     while (in)
@@ -367,12 +423,12 @@ inline int read_mesh_dot_mesh(MeshT &mesh, const char *filename)
         {
             in >> nf;
             in.ignore(kInf, '\n');
-            face_list.reserve(nf);
+            fs.reserve(nf);
             for (int i = 0; i < nf; ++i)
             {
                 int ids[3];
                 in >> ids[0] >> ids[1] >> ids[2];
-                face_list.emplace_back(ids[0]-1, ids[1]-1, ids[2]-1);
+                fs.emplace_back(ids[0]-1, ids[1]-1, ids[2]-1);
                 // optional: process facet tag
                 in.ignore(kInf, '\n');
             }
@@ -381,12 +437,12 @@ inline int read_mesh_dot_mesh(MeshT &mesh, const char *filename)
         {
             in >> ne;
             in.ignore(kInf, '\n');
-            edge_list.reserve(ne);
+            es.reserve(ne);
             for (int i = 0; i < ne; ++i)
             {
                 int ids[2];
                 in >> ids[0] >> ids[1];
-                edge_list.emplace_back(ids[0]-1, ids[1]-1);
+                es.emplace_back(ids[0]-1, ids[1]-1);
                 // optional: process edge tag
                 in.ignore(kInf, '\n');
             }
@@ -395,11 +451,11 @@ inline int read_mesh_dot_mesh(MeshT &mesh, const char *filename)
         {}
     }
 
-    for (const auto &face : face_list)
+    for (const auto &face : fs)
     {
-        int i0 = std::get<0>(face);
-        int i1 = std::get<1>(face);
-        int i2 = std::get<2>(face);
+        int i0 = face[0];
+        int i1 = face[1];
+        int i2 = face[2];
         mesh.add_face({
             mesh.vertex_handle(i0),
             mesh.vertex_handle(i1),
@@ -407,10 +463,10 @@ inline int read_mesh_dot_mesh(MeshT &mesh, const char *filename)
         });
     }
 
-    for (const auto &edge : edge_list)
+    for (const auto &edge : es)
     {
-        int i0 = std::get<0>(edge);
-        int i1 = std::get<1>(edge);
+        int i0 = edge[0];
+        int i1 = edge[1];
         auto hdge = mesh.find_halfedge(mesh.vertex_handle(i0), mesh.vertex_handle(i1));
         if (hdge.is_valid()) set_sharp(mesh, hdge.edge(), true);
     }

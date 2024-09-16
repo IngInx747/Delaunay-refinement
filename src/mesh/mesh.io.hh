@@ -27,6 +27,14 @@ int save_poly(
     const int offset = 1,
     const std::streamsize prec = 17i64);
 
+int save_mesh(
+    const double *vs, const int nv,
+    const int    *fs, const int nf,
+    const int    *es, const int ne,
+    const char* filename,
+    const int offset = 1,
+    const std::streamsize prec = 17i64);
+
 int save_obj(
     const double *vs, const int nv,
     const int    *fs, const int nf,

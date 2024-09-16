@@ -156,6 +156,18 @@ inline bool is_hidden(const MeshT &mesh, const Eh &eh) { return mesh.status(eh).
 template <class MeshT>
 inline void set_hidden(MeshT &mesh, const Eh &eh, const bool val) { mesh.status(eh).set_hidden(val); }
 
+template <class MeshT>
+inline bool is_deleted(const MeshT &mesh, const Vh &vh) { return mesh.status(vh).deleted(); }
+
+template <class MeshT>
+inline bool is_deleted(const MeshT &mesh, const Fh &fh) { return mesh.status(fh).deleted(); }
+
+template <class MeshT>
+inline bool is_deleted(const MeshT &mesh, const Eh &eh) { return mesh.status(eh).deleted(); }
+
+template <class MeshT>
+inline bool is_deleted(const MeshT &mesh, const Hh &hh) { return mesh.status(hh).deleted(); }
+
 ////////////////////////////////////////////////////////////////
 /// Geometry
 ////////////////////////////////////////////////////////////////
