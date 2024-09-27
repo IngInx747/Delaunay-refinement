@@ -219,12 +219,11 @@ static inline PLOW_STATUS next_primitive(const TriMesh &mesh, const Vec2 &u0, co
     {
         const auto ii = intersection_info(mesh, u0, u1, hh);
         if (ii == PLOW_STATUS::MISS) continue;
-
         res = ii;
 
         if (ii == PLOW_STATUS::EDGE)
         {
-            hhc = mesh.opposite_halfedge_handle(hh);
+            hhc = hh;
         }
         else if (ii == PLOW_STATUS::VERT)
         {
@@ -241,19 +240,25 @@ static inline PLOW_STATUS next_primitive(const TriMesh &mesh, const Vec2 &u0, co
 
     const auto uo = get_xy(mesh, vho);
 
-    for (Hh hh : mesh.voh_range(vho)) if (!mesh.is_boundary(hh))
+    for (Hh hh : mesh.voh_range(vho))
     {
-        hh = mesh.next_halfedge_handle(hh); // apex edge of v0
+        if (!mesh.is_boundary(hh)) // the apex halfedge to v0
+        {
+            hh = mesh.next_halfedge_handle(hh);
+        }
+        else // an extra halfedge to the vertex adjacent to v0 but not tested
+        {
+            hh = mesh.opposite_halfedge_handle(mesh.next_halfedge_handle(mesh.ccw_rotated_halfedge_handle(hh)));
+        }
 
         // use (uo,u1) for intersecting test instead of (u0,u1)
         const auto ii = intersection_info(mesh, uo, u1, hh);
         if (ii == PLOW_STATUS::MISS) continue;
-
         res = ii;
 
         if (ii == PLOW_STATUS::EDGE)
         {
-            hhc = mesh.opposite_halfedge_handle(hh);
+            hhc = hh;
         }
         else if (ii == PLOW_STATUS::VERT)
         {
@@ -266,6 +271,10 @@ static inline PLOW_STATUS next_primitive(const TriMesh &mesh, const Vec2 &u0, co
 
 void PrimitivePlow::next()
 {
+    if (st_ == PLOW_STATUS::EDGE)
+    {
+        hh_ = m_.opposite_halfedge_handle(hh_);
+    }
     if (st_ == PLOW_STATUS::EDGE)
     {
         st_ = next_primitive(m_, u0_, u1_, hh_, hh_, vh_);
@@ -305,7 +314,6 @@ static inline PLOW_STATUS first_primitive(const TriMesh &mesh, const Vec2 &u0, c
         for (Hh hh : mesh.fh_range(fho))
         if (intersection_info(mesh, u0, u1, hh) == PLOW_STATUS::MISS)
         { hhc = hh; break; } // then start with any non-intersecting edge
-
         return PLOW_STATUS::EDGE;
     }
 
@@ -347,7 +355,11 @@ static inline PLOW_STATUS first_primitive(const TriMesh &mesh, const Vec2 &u0, c
 void init(PrimitivePlow &pp, const Fh &fh0, const Vec2 &u0, const Vec2 &u1)
 {
     Hh hhc {}; Vh vhc {};
-    auto st = first_primitive(pp.mesh(), u0, u1, fh0, hhc, vhc);
+    const auto &mesh = pp.mesh();
+
+    auto st = first_primitive(mesh, u0, u1, fh0, hhc, vhc);
+    if (st == PLOW_STATUS::EDGE) { hhc = mesh.opposite_halfedge_handle(hhc); }
+
     pp.set_halfedge_handle(hhc);
     pp.set_vertex_handle(vhc);
     pp.set_status(st);
@@ -362,7 +374,7 @@ void init(PrimitivePlow &pp, const Fh &fh0, const Vec2 &u1)
 
     for (Hh hh : mesh.fh_range(fh0))
     if (intersection_info(mesh, u0, u1, hh) == PLOW_STATUS::MISS)
-    { pp.set_halfedge_handle(hh); break; }
+    { pp.set_halfedge_handle(mesh.opposite_halfedge_handle(hh)); break; }
 
     pp.set_status(PLOW_STATUS::EDGE);
     pp.set_u0(u0);

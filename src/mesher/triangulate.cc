@@ -36,26 +36,6 @@ struct EuclideanDelaunay
     { return is_sharp(mesh, eh) || is_delaunay(mesh, eh); } // If true, do not flip
 };
 
-static int make_delaunay(TriMesh &mesh, Eh eh)
-{
-    auto delaunifier = make_delaunifier(mesh, EuclideanDelaunay {});
-
-    const int max_n_flip = (int)mesh.n_edges();
-
-    const Eh ehs[4] {
-        mesh.edge_handle(mesh.next_halfedge_handle(mesh.halfedge_handle(eh, 0))),
-        mesh.edge_handle(mesh.prev_halfedge_handle(mesh.halfedge_handle(eh, 0))),
-        mesh.edge_handle(mesh.next_halfedge_handle(mesh.halfedge_handle(eh, 1))),
-        mesh.edge_handle(mesh.prev_halfedge_handle(mesh.halfedge_handle(eh, 1)))
-    };
-
-    delaunifier.reset(); delaunifier.enqueue(ehs, 4);
-
-    int n_flip = delaunifier.flip_all(max_n_flip);
-
-    return n_flip;
-}
-
 ////////////////////////////////////////////////////////////////
 /// Utilities
 ////////////////////////////////////////////////////////////////
@@ -159,13 +139,9 @@ static inline void set_domain(TriMesh &mesh)
 
 static int insert_vertices(TriMesh &mesh, std::unordered_map<Vh, Vh> &dups)
 {
-    const int max_n_flip = 100;
-
     auto delaunifier = make_delaunifier(mesh, EuclideanDelaunay {});
 
-    int n_new_vertices {};
-
-    Fh fh_last {};
+    int n_new_vertices {}; Fh fh_last {};
 
     for (Vh vh : mesh.vertices()) if (mesh.is_isolated(vh))
     {
@@ -191,15 +167,13 @@ static int insert_vertices(TriMesh &mesh, std::unordered_map<Vh, Vh> &dups)
         if (loc == TRI_LOC::IN) split(mesh, fh, vh);
         else                    split(mesh, hh, vh);
 
-        // edges to flip
-        Eh ehs[4]; int ne {};
-        for (auto hdge : mesh.voh_range(vh))
-            if (!hdge.next().edge().is_boundary())
-                ehs[ne++] = hdge.next().edge();
+        // edges that are potentially non-Delaunay
+        Eh ehs[4]; int ne {}; for (Hh hh : mesh.voh_range(vh)) if (!mesh.is_boundary(hh))
+        { ehs[ne++] = mesh.edge_handle(mesh.next_halfedge_handle(hh)); }
 
         // maintain Delaunay
         delaunifier.reset(); delaunifier.enqueue(ehs, ne);
-        int n_flip = delaunifier.flip_all(max_n_flip);
+        int n_flip = delaunifier.flip_all(42);
 
         ++n_new_vertices;
     }
@@ -333,6 +307,21 @@ static Hh restore_constraint(TriMesh &mesh, Vh vh0, Vh vh1, std::vector<Hh> &hit
     return hh_rc;
 }
 
+static int make_delaunay(TriMesh &mesh, Eh eh)
+{
+    auto delaunifier = make_delaunifier(mesh, EuclideanDelaunay {});
+
+    const Eh ehs[4] {
+        mesh.edge_handle(mesh.next_halfedge_handle(mesh.halfedge_handle(eh, 0))),
+        mesh.edge_handle(mesh.prev_halfedge_handle(mesh.halfedge_handle(eh, 0))),
+        mesh.edge_handle(mesh.next_halfedge_handle(mesh.halfedge_handle(eh, 1))),
+        mesh.edge_handle(mesh.prev_halfedge_handle(mesh.halfedge_handle(eh, 1)))
+    };
+
+    delaunifier.reset(); delaunifier.enqueue(ehs, 4);
+    return delaunifier.flip_all(42);
+}
+
 static int restore_constraints(
     TriMesh &mesh,
     const std::vector<Int2> &es,
@@ -374,9 +363,7 @@ static int restore_constraints(
         else
         {
             Eh ehc = mesh.edge_handle(hhc);
-
             set_sharp(mesh, ehc, true); // mark restored edge as segment
-
             make_delaunay(mesh, ehc); // maintain Delaunay after restoration
         }
     }

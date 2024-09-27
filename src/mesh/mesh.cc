@@ -22,41 +22,64 @@ const char *var_m_path() { return "mesh:path"; }
 /// Dump handle
 ////////////////////////////////////////////////////////////////
 
-int dump_handle(const ArrayKernel &mesh, const Vh &vh, const int offset)
+static int reindex_vertex(const ArrayKernel &mesh, const Vh &vh)
 {
-    return vh.idx() + offset;
+    if (vh.idx() >= mesh.n_vertices()) return -1;
+
+    int id {};
+
+    for (int i = 0; i < vh.idx(); ++i)
+    if (!mesh.status(mesh.vertex_handle(i)).deleted())
+    if (!mesh.status(mesh.vertex_handle(i)).hidden())
+    { ++id; }
+
+    return id;
 }
 
-std::tuple<int, int> dump_handle(const ArrayKernel &mesh, const Hh &hh, const int offset)
+int dump_handle(const ArrayKernel &mesh, const Vh &vh, const int offset, const bool reindex)
 {
-    return {
-        mesh.from_vertex_handle(hh).idx() + offset,
-        mesh.to_vertex_handle  (hh).idx() + offset
-    };
+    const int id = reindex ? reindex_vertex(mesh, vh) : vh.idx();
+    return id + offset;
 }
 
-std::tuple<int, int> dump_handle(const ArrayKernel &mesh, const Eh &eh, const int offset)
+std::tuple<int, int> dump_handle(const ArrayKernel &mesh, const Hh &hh, const int offset, const bool reindex)
 {
-    return {
-        mesh.from_vertex_handle(mesh.halfedge_handle(eh, 0)).idx() + offset,
-        mesh.to_vertex_handle  (mesh.halfedge_handle(eh, 0)).idx() + offset
-    };
+    Vh vh0 = mesh.from_vertex_handle(hh);
+    Vh vh1 = mesh.to_vertex_handle  (hh);
+    const int i0 = reindex ? reindex_vertex(mesh, vh0) : vh0.idx();
+    const int i1 = reindex ? reindex_vertex(mesh, vh1) : vh1.idx();
+    return { i0 + offset, i1 + offset };
 }
 
-std::tuple<int, int, int> dump_handle(const TriMesh &mesh, const Fh &fh, const int offset)
+std::tuple<int, int> dump_handle(const ArrayKernel &mesh, const Eh &eh, const int offset, const bool reindex)
 {
-    return {
-        mesh.from_vertex_handle(mesh.halfedge_handle(fh)).idx() + offset,
-        mesh.to_vertex_handle  (mesh.halfedge_handle(fh)).idx() + offset,
-        mesh.to_vertex_handle  (mesh.next_halfedge_handle(mesh.halfedge_handle(fh))).idx() + offset
-    };
+    Vh vh0 = mesh.from_vertex_handle(mesh.halfedge_handle(eh, 0));
+    Vh vh1 = mesh.to_vertex_handle  (mesh.halfedge_handle(eh, 0));
+    const int i0 = reindex ? reindex_vertex(mesh, vh0) : vh0.idx();
+    const int i1 = reindex ? reindex_vertex(mesh, vh1) : vh1.idx();
+    return { i0 + offset, i1 + offset };
 }
 
-std::vector<int> dump_handle(const PolyMesh &mesh, const Fh &fh, const int offset)
+std::tuple<int, int, int> dump_handle(const TriMesh &mesh, const Fh &fh, const int offset, const bool reindex)
+{
+    Vh vh0 = mesh.from_vertex_handle(mesh.halfedge_handle(fh));
+    Vh vh1 = mesh.to_vertex_handle  (mesh.halfedge_handle(fh));
+    Vh vh2 = mesh.to_vertex_handle  (mesh.next_halfedge_handle(mesh.halfedge_handle(fh)));
+    const int i0 = reindex ? reindex_vertex(mesh, vh0) : vh0.idx();
+    const int i1 = reindex ? reindex_vertex(mesh, vh1) : vh1.idx();
+    const int i2 = reindex ? reindex_vertex(mesh, vh2) : vh2.idx();
+    return { i0 + offset, i1 + offset, i2 + offset };
+}
+
+std::vector<int> dump_handle(const PolyMesh &mesh, const Fh &fh, const int offset, const bool reindex)
 {
     std::vector<int> vs {};
     for (Hh hh : mesh.fh_range(fh))
-    { vs.push_back(mesh.to_vertex_handle(hh).idx() + offset); }
+    {
+        Vh vh = mesh.to_vertex_handle(hh);
+        const int id = reindex ? reindex_vertex(mesh, vh) : vh.idx();
+        vs.push_back(id + offset);
+    }
     return vs;
 }
 
