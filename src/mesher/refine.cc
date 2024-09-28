@@ -11,31 +11,6 @@
 using namespace OpenMesh;
 
 ////////////////////////////////////////////////////////////////
-/// Containers
-////////////////////////////////////////////////////////////////
-
-template <class T>
-struct unique_vector
-{
-    inline void push_back(const T &v)
-    { if (!vt.count(v)) { vs.push_back(v); vt.insert(v); } }
-
-    inline void pop_back()
-    { vt.erase(vs.back()); vs.pop_back(); }
-
-    inline void clear()
-    { vs.clear(); vt.clear(); }
-
-    inline const std::vector<T> &vector() const
-    { return vs; }
-
-protected:
-
-    std::vector<T> vs;
-    std::unordered_set<T> vt;
-};
-
-////////////////////////////////////////////////////////////////
 /// Predicates
 ////////////////////////////////////////////////////////////////
 
@@ -94,6 +69,31 @@ struct EuclideanDelaunay
 {
     inline bool operator()(const TriMesh &mesh, const Eh &eh) const
     { return is_sharp(mesh, eh) || is_delaunay(mesh, eh); } // If true, do not flip
+};
+
+////////////////////////////////////////////////////////////////
+/// Containers
+////////////////////////////////////////////////////////////////
+
+template <class T>
+struct unique_vector
+{
+    inline void push_back(const T &v)
+    { if (!vt.count(v)) { vs.push_back(v); vt.insert(v); } }
+
+    inline void pop_back()
+    { vt.erase(vs.back()); vs.pop_back(); }
+
+    inline void clear()
+    { vs.clear(); vt.clear(); }
+
+    inline const std::vector<T> &vector() const
+    { return vs; }
+
+protected:
+
+    std::vector<T> vs;
+    std::unordered_set<T> vt;
 };
 
 ////////////////////////////////////////////////////////////////
