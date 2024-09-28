@@ -42,7 +42,40 @@ static inline bool is_segment(const TriMesh &mesh, const Hh &hh)
 static inline bool is_segment(const TriMesh &mesh, const Vh &vh)
 {
     for (Eh eh : mesh.ve_range(vh)) if (is_segment(mesh, eh)) return true;
-    return false;
+    return false; // is the vertex on a segment
+}
+
+static inline bool is_endian(const TriMesh &mesh, const Vh &vh)
+{
+    return is_sharp(mesh, vh); // is the vertex from an original segment
+}
+
+struct IsSegment
+{
+    inline bool operator()(const TriMesh &mesh, const Hh &hh) const
+    { return is_segment(mesh, hh); }
+};
+
+static inline Vh segment_head(const TriMesh &mesh, const Hh &hh)
+{
+    Hh hi = hh; IsSegment pred {};
+    while (!is_endian(mesh, mesh.to_vertex_handle(hi)))
+    { if ((hi = next(mesh, pred, hi)) == hh) break; }
+    return mesh.to_vertex_handle(hi);
+}
+
+static inline Vh segment_tail(const TriMesh &mesh, const Hh &hh)
+{
+    Hh hi = hh; IsSegment pred {};
+    while (!is_endian(mesh, mesh.from_vertex_handle(hi)))
+    { if ((hi = prev(mesh, pred, hi)) == hh) break; }
+    return mesh.from_vertex_handle(hi);
+}
+
+static void mark_endians(TriMesh &mesh)
+{
+    for (Hh hh : mesh.halfedges()) if (is_sharp(mesh, mesh.edge_handle(hh)))
+    { set_sharp(mesh, mesh.to_vertex_handle(hh), true); }
 }
 
 ////////////////////////////////////////////////////////////////
@@ -405,6 +438,40 @@ struct Encroachment
 /// Triangle quality
 ////////////////////////////////////////////////////////////////
 
+static inline bool is_subtending_input_angle(const TriMesh &mesh, const Hh &hh)
+{
+    IsSegment pred {};
+
+    // try getting two segments between which the base is
+    Hh hh0 = next(mesh, pred, hh);
+    Hh hh1 = prev(mesh, pred, hh);
+
+    // one or both ends of the base do not lie on segments
+    if (!is_segment(mesh, hh0) || !is_segment(mesh, hh1)) return false;
+
+    Vh vh00 = segment_head(mesh, hh0);
+    Vh vh01 = segment_tail(mesh, hh0);
+    Vh vh10 = segment_head(mesh, hh1);
+    Vh vh11 = segment_tail(mesh, hh1);
+    Vh vhc {}; // common end
+
+    if (vh01 == vh10) vhc = vh01;
+    if (vh00 == vh11) vhc = vh00;
+
+    // two segment not sharing a common end
+    if (!vhc.is_valid()) return false;
+
+    const auto u0 = get_xy(mesh, mesh.from_vertex_handle(hh));
+    const auto u1 = get_xy(mesh, mesh.to_vertex_handle  (hh));
+    const auto uc = get_xy(mesh, vhc);
+    const auto d0 = u0 - uc;
+    const auto d1 = u1 - uc;
+    const double rd = dot(d0, d0) / dot(d1, d1);
+
+    // check if two ends lie on a circle centering the common end
+    return fabs(rd - 1.0) < 1e-3;
+}
+
 static inline bool is_bad_triangle(
     const TriMesh &mesh, const Fh &fh,
     const double max_cos2,
@@ -461,23 +528,21 @@ static inline bool is_bad_triangle(
     double ddb = dd[0]; int i = 0;
     if (ddb > dd[1]) { ddb = dd[1]; i = 1; }
     if (ddb > dd[2]) { ddb = dd[2]; i = 2; }
-
     int j = (i + 1) % 3; // leg 1
     int k = (i + 2) % 3; // leg 2
-
-    const double ratio = dd[j] / dd[k]; // length ratio of two legs of the corner
-
-    if (is_segment(mesh, mesh.edge_handle(hh[j])) &&
-        is_segment(mesh, mesh.edge_handle(hh[k])) &&
-        fabs(ratio - 1.0) < 1e-3) return false;
-
-    //if (is_segment(mesh, mesh.edge_handle(hh[j])) ||
-    //    is_segment(mesh, mesh.edge_handle(hh[k])) ) return false;
 
     const double cs2 = (dp[i]*dp[i])/(dd[j]*dd[k]); // cos^2 of the smallest corner angle
 
     // check angle lower bound
-    return cs2 > max_cos2;
+    if (cs2 > max_cos2) {
+
+    // skip if the smallest edge subtends an input angle
+    if (!is_segment(mesh, hh[i]) && is_subtending_input_angle(mesh, hh[i])) return false;
+
+    return true; }
+
+    // the triangle passes all tests, hence no refinement is needed
+    return false;
 }
 
 struct BadTriangle
@@ -803,11 +868,13 @@ static int split_interior(TriMesh &mesh, const BadTriangle &bad_triangle, const 
 
 int refine(TriMesh &mesh, const double min_angle)
 {
+    int err {};
+
     Encroachment encroached(min_angle);
 
     BadTriangle bad_triangle(min_angle, 1e10, 1e5);
 
-    int err {};
+    mark_endians(mesh);
 
     err = split_segments(mesh, encroached);
 
