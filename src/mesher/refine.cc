@@ -618,6 +618,8 @@ static inline Vec2 splitting_position(const TriMesh &mesh, Hh hh)
 
 static int split_segments(TriMesh &mesh, const Encroachment &encroached)
 {
+    int n_new_vertices {};
+
     auto delaunifier = make_delaunifier(mesh, EuclideanDelaunay {});
 
     // Before enqueueing encroached segments, free vertices in
@@ -668,6 +670,8 @@ static int split_segments(TriMesh &mesh, const Encroachment &encroached)
             for (Eh eh : eas.vector()) { if (!is_deleted(mesh, eh)) if (is_segment(mesh, eh))
             for (Hh hh : mesh.eh_range(eh)) { if (encroached(mesh, hh))
             { events.push_back(make_segment(mesh, hh)); } } }
+
+            ++n_new_vertices;
         }
     }
 
@@ -685,13 +689,15 @@ static int split_interior(TriMesh &mesh, const BadTriangle &bad_triangle, const 
         return (ia == ib) ? a.score < b.score : ia < ib;
     };
 
+    int n_new_vertices {};
+
+    auto delaunifier = make_delaunifier(mesh, EuclideanDelaunay {});
+
     std::priority_queue<Entry, std::deque<Entry>, decltype(comp)> events(comp);
 
     // check quality of all triangles at initialization
     for (Fh fh : mesh.faces()) if (bad_triangle(mesh, fh))
     { events.push({ make_triangle(mesh, fh), calc_priority(mesh, fh) }); }
-
-    auto delaunifier = make_delaunifier(mesh, EuclideanDelaunay {});
 
     while (!events.empty())
     {
@@ -781,7 +787,7 @@ static int split_interior(TriMesh &mesh, const BadTriangle &bad_triangle, const 
             for (Fh fh : fas.vector()) if (!is_deleted(mesh, fh)) { if (bad_triangle(mesh, fh))
             { events.push({ make_triangle(mesh, fh), calc_priority(mesh, fh) }); } }
 
-            int _ {};
+            ++n_new_vertices;
         }
 
         else if (is_segment(event))
@@ -855,7 +861,7 @@ static int split_interior(TriMesh &mesh, const BadTriangle &bad_triangle, const 
             for (Fh fh : fas.vector()) { if (!is_deleted(mesh, fh)) if (bad_triangle(mesh, fh))
             { events.push({ make_triangle(mesh, fh), calc_priority(mesh, fh) }); } }
 
-            int _ {};
+            ++n_new_vertices;
         }
     }
 
@@ -876,9 +882,9 @@ int refine(TriMesh &mesh, const double min_angle)
 
     mark_endians(mesh);
 
-    err = split_segments(mesh, encroached);
+    split_segments(mesh, encroached);
 
-    err = split_interior(mesh, bad_triangle, encroached);
+    split_interior(mesh, bad_triangle, encroached);
 
     mesh.garbage_collection();
 
