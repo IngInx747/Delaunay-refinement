@@ -61,7 +61,8 @@ inline TRI_LOC fuzzy_locate(const Vec2 &u0, const Vec2 &u1, const Vec2 &u2, cons
         fabs(bc[0]) < kEps ? TRI_LOC::E0 :
         fabs(bc[1]) < kEps ? TRI_LOC::E1 :
         fabs(bc[2]) < kEps ? TRI_LOC::E2 :
-        TRI_LOC::IN ;
+        bc[0]>0 && bc[1]>0 && bc[2]>0 ? TRI_LOC::IN :
+        TRI_LOC::OUT ;
 }
 
 inline TRI_LOC exact_locate(const Vec2 &u0, const Vec2 &u1, const Vec2 &u2, const Vec2 &u)

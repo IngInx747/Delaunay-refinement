@@ -1313,9 +1313,9 @@ REAL *e;
 /*****************************************************************************/
 
 REAL orient2dfast(pa, pb, pc)
-REAL *pa;
-REAL *pb;
-REAL *pc;
+const REAL *pa;
+const REAL *pb;
+const REAL *pc;
 {
   REAL acx, bcx, acy, bcy;
 
@@ -1565,10 +1565,10 @@ const REAL *pc;
 /*****************************************************************************/
 
 REAL orient3dfast(pa, pb, pc, pd)
-REAL *pa;
-REAL *pb;
-REAL *pc;
-REAL *pd;
+const REAL *pa;
+const REAL *pb;
+const REAL *pc;
+const REAL *pd;
 {
   REAL adx, bdx, cdx;
   REAL ady, bdy, cdy;
@@ -2172,10 +2172,10 @@ REAL permanent;
 }
 
 REAL orient3d(pa, pb, pc, pd)
-REAL *pa;
-REAL *pb;
-REAL *pc;
-REAL *pd;
+const REAL *pa;
+const REAL *pb;
+const REAL *pc;
+const REAL *pd;
 {
   REAL adx, bdx, cdx, ady, bdy, cdy, adz, bdz, cdz;
   REAL bdxcdy, cdxbdy, cdxady, adxcdy, adxbdy, bdxady;
@@ -2243,10 +2243,10 @@ REAL *pd;
 /*****************************************************************************/
 
 REAL incirclefast(pa, pb, pc, pd)
-REAL *pa;
-REAL *pb;
-REAL *pc;
-REAL *pd;
+const REAL *pa;
+const REAL *pb;
+const REAL *pc;
+const REAL *pd;
 {
   REAL adx, ady, bdx, bdy, cdx, cdy;
   REAL abdet, bcdet, cadet;
@@ -3106,10 +3106,10 @@ REAL permanent;
 }
 
 REAL incircle(pa, pb, pc, pd)
-REAL *pa;
-REAL *pb;
-REAL *pc;
-REAL *pd;
+const REAL *pa;
+const REAL *pb;
+const REAL *pc;
+const REAL *pd;
 {
   REAL adx, bdx, cdx, ady, bdy, cdy;
   REAL bdxcdy, cdxbdy, cdxady, adxcdy, adxbdy, bdxady;
@@ -3179,11 +3179,11 @@ REAL *pd;
 /*****************************************************************************/
 
 REAL inspherefast(pa, pb, pc, pd, pe)
-REAL *pa;
-REAL *pb;
-REAL *pc;
-REAL *pd;
-REAL *pe;
+const REAL *pa;
+const REAL *pb;
+const REAL *pc;
+const REAL *pd;
+const REAL *pe;
 {
   REAL aex, bex, cex, dex;
   REAL aey, bey, cey, dey;
@@ -4038,11 +4038,11 @@ REAL permanent;
 }
 
 REAL insphere(pa, pb, pc, pd, pe)
-REAL *pa;
-REAL *pb;
-REAL *pc;
-REAL *pd;
-REAL *pe;
+const REAL *pa;
+const REAL *pb;
+const REAL *pc;
+const REAL *pd;
+const REAL *pe;
 {
   REAL aex, bex, cex, dex;
   REAL aey, bey, cey, dey;

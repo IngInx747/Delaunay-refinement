@@ -10,27 +10,19 @@
 // 2---0
 //  \ / 
 //   3  
-inline bool is_delaunay(const Vec2 &u0, const Vec2 &u1, const Vec2 &u2, const Vec2 &u3)
+inline bool fuzzy_delaunay(const Vec2 &u0, const Vec2 &u1, const Vec2 &u2, const Vec2 &u3)
 {
-    const double l  = norm(u0 - u2);
-    const double l0 = norm(u1 - u2);
-    const double l1 = norm(u1 - u0);
-    const double l2 = norm(u3 - u2);
-    const double l3 = norm(u3 - u0);
-    const double cs0 = cosine(l0, l1, l);
-    const double cs1 = cosine(l2, l3, l);
-    return cs0 + cs1 >= 0;
+    return incircle(u0, u1, u2, u3, true) <= 0;
 }
 
-inline Vec2 circumcenter(const Vec2 &u0, const Vec2 &u1, const Vec2 &u2)
+//   1  
+//  / \ 
+// 2---0
+//  \ / 
+//   3  
+inline bool exact_delaunay(const Vec2 &u0, const Vec2 &u1, const Vec2 &u2, const Vec2 &u3)
 {
-    const auto d0 = u1 - u0;
-    const auto d1 = u2 - u0;
-    const double a = cross(d0, d1);
-    const double d00 = dot(d0, d0);
-    const double d11 = dot(d1, d1);
-    const Vec2 uc { d1[1]*d00 - d0[1]*d11, d0[0]*d11 - d1[0]*d00 };
-    return uc / (a*2.) + u0;
+    return incircle(u0, u1, u2, u3) <= 0; // == incircle(u2, u3, u0, u1)
 }
 
 //   1  
@@ -64,6 +56,17 @@ inline bool exact_convex(const Vec2 &u0, const Vec2 &u1, const Vec2 &u2, const V
     const int r3 = orientation(u2, u3, u0);
     return r0 > 0 && r1 > 0 && r2 > 0 && r3 > 0 ||
            r0 < 0 && r1 < 0 && r2 < 0 && r3 < 0 ;
+}
+
+inline Vec2 circumcenter(const Vec2 &u0, const Vec2 &u1, const Vec2 &u2)
+{
+    const auto d0 = u1 - u0;
+    const auto d1 = u2 - u0;
+    const double a = cross(d0, d1);
+    const double d00 = dot(d0, d0);
+    const double d11 = dot(d1, d1);
+    const Vec2 uc { d1[1]*d00 - d0[1]*d11, d0[0]*d11 - d1[0]*d00 };
+    return uc / (a*2.) + u0;
 }
 
 #endif
