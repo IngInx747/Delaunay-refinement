@@ -547,7 +547,7 @@ static inline bool is_bad_triangle(
 
 struct BadTriangle
 {
-    BadTriangle(const double min_angle, const double max_area, const double max_length):
+    BadTriangle(const double min_angle, const double max_length, const double max_area):
     max_cos2(cos(min_angle)*cos(min_angle)),
     max_len2(max_length*max_length),
     max_twoa(max_area*2.0) {}
@@ -872,13 +872,13 @@ static int split_interior(TriMesh &mesh, const BadTriangle &bad_triangle, const 
 /// Wrapping up
 ////////////////////////////////////////////////////////////////
 
-int refine(TriMesh &mesh, const double min_angle)
+int refine(TriMesh &mesh, const double min_angle, const double max_length, const double max_area)
 {
     int err {};
 
     Encroachment encroached(min_angle);
 
-    BadTriangle bad_triangle(min_angle, 1e10, 1e5);
+    BadTriangle bad_triangle(min_angle, max_length, max_area);
 
     mark_endians(mesh);
 

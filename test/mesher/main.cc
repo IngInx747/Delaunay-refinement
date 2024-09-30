@@ -66,8 +66,8 @@ int main(const int argc, const char **argv)
     if (argc < 2) { printf("No file provided.\n"); return 1; }
 
     double min_angle = 26.0;
-    double max_length = 0;
-    double max_area = 0;
+    double max_length = 1e5;
+    double max_area = .5e10;
 
     const char *arg {};
     if ((arg = get_value(argv, argv + argc, "--min-angle")))  { min_angle = atof(arg); }
@@ -96,7 +96,7 @@ int main(const int argc, const char **argv)
     hide_exterior_region(mesh, ss);
     save_mesh(mesh, (prefix + ".CDT.mesh").c_str());
 
-    err = refine(mesh, radian(min_angle));
+    err = refine(mesh, radian(min_angle), max_length, max_area);
     save_mesh(mesh, (prefix + ".refined.mesh").c_str());
     if (err) { printf("Refinement failed.\n"); return err; }
 

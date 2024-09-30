@@ -21,9 +21,9 @@ int triangulate(
     const std::vector<Int2>&,
     TriMesh&);
 
-int refine(TriMesh&, const double min_angle);
-
 int hide_exterior_region(TriMesh&, const std::vector<Vec2> &seeds);
+
+int refine(TriMesh&, const double min_angle, const double max_length, const double max_area);
 
 int laplacian_smoothing(TriMesh&, const double step, const int max_num_iter);
 
