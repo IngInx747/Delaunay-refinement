@@ -297,30 +297,30 @@ static Fh search_primitive(const TriMesh &mesh, const Vec2 &u1, const Fh &fh0, s
 }
 
 ////////////////////////////////////////////////////////////////
-/// Refinable events
+/// Primitive union
 ////////////////////////////////////////////////////////////////
 
-struct Event // either a triangle or a segment
+struct Primitive // either a triangle or a segment
 {
     Vh vh0, vh1, vh2;
 };
 
 template<>
-struct std::hash<Event>
+struct std::hash<Primitive>
 {
-    size_t operator()(const Event &event) const noexcept
+    size_t operator()(const Primitive &primitive) const noexcept
     {
-        size_t h0 = hash<Vh>{}(event.vh0);
-        size_t h1 = hash<Vh>{}(event.vh1);
-        size_t h2 = hash<Vh>{}(event.vh2);
+        size_t h0 = hash<Vh>{}(primitive.vh0);
+        size_t h1 = hash<Vh>{}(primitive.vh1);
+        size_t h2 = hash<Vh>{}(primitive.vh2);
         return ((h0 ^ h1) << 1) ^ h2;
     }
 };
 
 template<>
-struct std::equal_to<Event>
+struct std::equal_to<Primitive>
 {
-    bool operator()(const Event &lhs, const Event &rhs) const noexcept
+    bool operator()(const Primitive &lhs, const Primitive &rhs) const noexcept
     {
         return
             lhs.vh0 == rhs.vh0 &&
@@ -329,42 +329,42 @@ struct std::equal_to<Event>
         }
 };
 
-static inline bool is_triangle(const Event &event)
+static inline bool is_triangle(const Primitive &primitive)
 {
-    return event.vh2.is_valid();
+    return primitive.vh2.is_valid();
 }
 
-static inline bool is_segment(const Event &event)
+static inline bool is_segment(const Primitive &primitive)
 {
-    return !event.vh2.is_valid();
+    return !primitive.vh2.is_valid();
 }
 
-static inline Fh get_triangle(const TriMesh &mesh, const Event &event)
+static inline Fh get_triangle(const TriMesh &mesh, const Primitive &primitive)
 {
-    if (is_deleted(mesh, event.vh0) ||
-        is_deleted(mesh, event.vh1) ||
-        is_deleted(mesh, event.vh2))
+    if (is_deleted(mesh, primitive.vh0) ||
+        is_deleted(mesh, primitive.vh1) ||
+        is_deleted(mesh, primitive.vh2))
         return Fh {};
 
-    Hh hh = mesh.find_halfedge(event.vh0, event.vh1);
+    Hh hh = mesh.find_halfedge(primitive.vh0, primitive.vh1);
     if (!hh.is_valid()) return Fh {};
 
     Vh vh2 = apex_vertex_handle(mesh, hh);
-    if (vh2 != event.vh2) return Fh {};
+    if (vh2 != primitive.vh2) return Fh {};
 
     return mesh.face_handle(hh);
 }
 
-static inline Hh get_segment(const TriMesh &mesh, const Event &event)
+static inline Hh get_segment(const TriMesh &mesh, const Primitive &primitive)
 {
-    if (is_deleted(mesh, event.vh0) ||
-        is_deleted(mesh, event.vh1))
+    if (is_deleted(mesh, primitive.vh0) ||
+        is_deleted(mesh, primitive.vh1))
         return Hh {};
 
-    return mesh.find_halfedge(event.vh0, event.vh1);
+    return mesh.find_halfedge(primitive.vh0, primitive.vh1);
 }
 
-static inline Event make_triangle(const TriMesh &mesh, Fh fh)
+static inline Primitive make_triangle(const TriMesh &mesh, Fh fh)
 {
     Hh hh = mesh.halfedge_handle(fh);
     Hh hi = mesh.next_halfedge_handle(hh);
@@ -375,7 +375,7 @@ static inline Event make_triangle(const TriMesh &mesh, Fh fh)
     return { vh0, vh1, vh2 };
 }
 
-static inline Event make_segment(const TriMesh &mesh, Hh hh)
+static inline Primitive make_segment(const TriMesh &mesh, Hh hh)
 {
     Vh vh0 = mesh.from_vertex_handle(hh);
     Vh vh1 = mesh.to_vertex_handle  (hh);
@@ -624,20 +624,20 @@ static int split_segments(TriMesh &mesh, const Encroachment &encroached)
     // the diametral circle of the segment should be deleted.
     // [TODO]
 
-    std::deque<Event> events {}; // primitives to split
+    std::deque<Primitive> frontier {}; // primitives to split
 
     for (Eh eh : mesh.edges()) { if (is_segment(mesh, eh))
     for (Hh hh : mesh.eh_range(eh)) { if (encroached(mesh, hh))
-    { events.push_back(make_segment(mesh, hh)); } } }
+    { frontier.push_back(make_segment(mesh, hh)); } } }
 
-    while (!events.empty())
+    while (!frontier.empty())
     {
-        auto event = events.front(); events.pop_front();
+        auto primitive = frontier.front(); frontier.pop_front();
 
-        if (is_segment(event))
+        if (is_segment(primitive))
         {
-            // restore the segment from the event
-            Hh ho = get_segment(mesh, event);
+            // restore the segment
+            Hh ho = get_segment(mesh, primitive);
 
             // the segment was gone during refining
             if (!ho.is_valid()) continue;
@@ -667,7 +667,7 @@ static int split_segments(TriMesh &mesh, const Encroachment &encroached)
             // check encroachment of encountered segments
             for (Eh eh : eas.vector()) { if (!is_deleted(mesh, eh)) if (is_segment(mesh, eh))
             for (Hh hh : mesh.eh_range(eh)) { if (encroached(mesh, hh))
-            { events.push_back(make_segment(mesh, hh)); } } }
+            { frontier.push_back(make_segment(mesh, hh)); } } }
 
             ++n_new_vertices;
         }
@@ -678,12 +678,12 @@ static int split_segments(TriMesh &mesh, const Encroachment &encroached)
 
 static int split_interior(TriMesh &mesh, const BadTriangle &bad_triangle, const Encroachment &encroached)
 {
-    struct Entry { Event event; double score; };
+    struct Entry { Primitive primitive; double score; };
 
     const auto comp = [](const Entry &a, const Entry &b)
     {
-        const int ia = is_segment(a.event) ? 1 : 0;
-        const int ib = is_segment(b.event) ? 1 : 0;
+        const int ia = is_segment(a.primitive) ? 1 : 0;
+        const int ib = is_segment(b.primitive) ? 1 : 0;
         return ia == ib ? a.score < b.score : ia < ib;
     };
 
@@ -691,20 +691,20 @@ static int split_interior(TriMesh &mesh, const BadTriangle &bad_triangle, const 
 
     auto delaunifier = make_delaunifier(mesh, EuclideanDelaunay {});
 
-    std::priority_queue<Entry, std::deque<Entry>, decltype(comp)> events(comp);
+    std::priority_queue<Entry, std::deque<Entry>, decltype(comp)> frontier(comp);
 
     // check quality of all triangles at initialization
     for (Fh fh : mesh.faces()) if (bad_triangle(mesh, fh))
-    { events.push({ make_triangle(mesh, fh), calc_priority(mesh, fh) }); }
+    { frontier.push({ make_triangle(mesh, fh), calc_priority(mesh, fh) }); }
 
-    while (!events.empty())
+    while (!frontier.empty())
     {
-        auto event = events.top().event; events.pop();
+        auto primitive = frontier.top().primitive; frontier.pop();
 
-        if (is_triangle(event))
+        if (is_triangle(primitive))
         {
-            // restore the triangle from the event
-            Fh fr = get_triangle(mesh, event);
+            // restore the triangle
+            Fh fr = get_triangle(mesh, primitive);
 
             // the triangle was gone during refining
             if (!fr.is_valid()) continue;
@@ -717,7 +717,7 @@ static int split_interior(TriMesh &mesh, const BadTriangle &bad_triangle, const 
 
             if (!hhs.empty()) // some segments are in the way hence encroached
             {
-                for (Hh hh : hhs) events.push({ make_segment(mesh, hh), calc_priority(mesh, hh) });
+                for (Hh hh : hhs) frontier.push({ make_segment(mesh, hh), calc_priority(mesh, hh) });
                 continue; // abort splitting
             }
 
@@ -762,7 +762,7 @@ static int split_interior(TriMesh &mesh, const BadTriangle &bad_triangle, const 
 
             if (!hss.empty()) // some segments are encroached
             {
-                for (Hh hh : hss) { events.push({ make_segment(mesh, hh), calc_priority(mesh, hh) }); }
+                for (Hh hh : hss) { frontier.push({ make_segment(mesh, hh), calc_priority(mesh, hh) }); }
 
                 // undo vertex insertion
                 Vh vc = collapse(mesh, vo);
@@ -782,15 +782,15 @@ static int split_interior(TriMesh &mesh, const BadTriangle &bad_triangle, const 
 
             // check quality of these triangles
             for (Fh fh : fas.vector()) if (!is_deleted(mesh, fh)) { if (bad_triangle(mesh, fh))
-            { events.push({ make_triangle(mesh, fh), calc_priority(mesh, fh) }); } }
+            { frontier.push({ make_triangle(mesh, fh), calc_priority(mesh, fh) }); } }
 
             ++n_new_vertices;
         }
 
-        else if (is_segment(event))
+        else if (is_segment(primitive))
         {
-            // restore the segment from the event
-            Hh ho = get_segment(mesh, event);
+            // restore the segment
+            Hh ho = get_segment(mesh, primitive);
 
             // the segment was gone during refining
             if (!ho.is_valid()) continue;
@@ -801,9 +801,9 @@ static int split_interior(TriMesh &mesh, const BadTriangle &bad_triangle, const 
 
             // Before enqueueing encroached segments, free vertices in
             // the diametral circle of the segment should be deleted.
-            for (const auto &event2 : { event, Event { event.vh1, event.vh0, Vh {} } }) while (true)
+            for (const auto &segment : { primitive, Primitive { primitive.vh1, primitive.vh0, Vh {} } }) while (true)
             {
-                Hh hh = get_segment(mesh, event2);
+                Hh hh = get_segment(mesh, segment);
                 if (!hh.is_valid()) break;
 
                 Vh vh = apex_vertex_handle(mesh, hh);
@@ -826,7 +826,7 @@ static int split_interior(TriMesh &mesh, const BadTriangle &bad_triangle, const 
             }
 
             // the segment was gone during last step (won't happen)
-            if (!(ho = get_segment(mesh, event)).is_valid()) continue;
+            if (!(ho = get_segment(mesh, primitive)).is_valid()) continue;
 
             // find a position for splitting
             const auto u = splitting_position(mesh, ho);
@@ -850,14 +850,14 @@ static int split_interior(TriMesh &mesh, const BadTriangle &bad_triangle, const 
             // check encroachment of encountered segments
             for (Eh eh : eas.vector()) { if (!is_deleted(mesh, eh)) if (is_segment(mesh, eh))
             for (Hh hh : mesh.eh_range(eh)) { if (encroached(mesh, hh))
-            { events.push({ make_segment(mesh, hh), calc_priority(mesh, hh) }); } } }
+            { frontier.push({ make_segment(mesh, hh), calc_priority(mesh, hh) }); } } }
 
             // check quality of affected triangles
             for (Eh eh : eas.vector()) { if (!is_deleted(mesh, eh)) for (Fh fh : mesh.ef_range(eh))
             if (fh.is_valid()) if (!is_exterior(mesh, fh)) { fas.push_back(fh); } }
 
             for (Fh fh : fas.vector()) { if (!is_deleted(mesh, fh)) if (bad_triangle(mesh, fh))
-            { events.push({ make_triangle(mesh, fh), calc_priority(mesh, fh) }); } }
+            { frontier.push({ make_triangle(mesh, fh), calc_priority(mesh, fh) }); } }
 
             ++n_new_vertices;
         }
