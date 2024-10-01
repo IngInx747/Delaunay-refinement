@@ -133,6 +133,34 @@ protected:
 /// Utilities
 ////////////////////////////////////////////////////////////////
 
+static inline Vh apex_vertex_handle(const TriMesh &mesh, const Hh &hh)
+{
+    assert(!mesh.is_boundary(hh));
+    return mesh.to_vertex_handle(mesh.next_halfedge_handle(hh));
+}
+
+static inline Vec2 centroid(const TriMesh &mesh, const Fh &fh)
+{
+    Hh hh0 = mesh.halfedge_handle(fh);
+    Hh hh1 = mesh.next_halfedge_handle(hh0);
+    Hh hh2 = mesh.next_halfedge_handle(hh1);
+    const auto u0 = get_xy(mesh, mesh.to_vertex_handle(hh0));
+    const auto u1 = get_xy(mesh, mesh.to_vertex_handle(hh1));
+    const auto u2 = get_xy(mesh, mesh.to_vertex_handle(hh2));
+    return (u0 + u1 + u2) / 3.;
+}
+
+static inline Vec2 circumcenter(const TriMesh &mesh, const Fh &fh)
+{
+    Hh hh0 = mesh.halfedge_handle(fh);
+    Hh hh1 = mesh.next_halfedge_handle(hh0);
+    Hh hh2 = mesh.next_halfedge_handle(hh1);
+    const auto u0 = get_xy(mesh, mesh.to_vertex_handle(hh0));
+    const auto u1 = get_xy(mesh, mesh.to_vertex_handle(hh1));
+    const auto u2 = get_xy(mesh, mesh.to_vertex_handle(hh2));
+    return circumcenter(u0, u1, u2);
+}
+
 static inline bool is_inside(const TriMesh &mesh, const Fh &fh, const Vec2 &u)
 {
     Hh hh0 = mesh.halfedge_handle(fh);
@@ -161,28 +189,6 @@ static inline TRI_LOC locate(const TriMesh &mesh, const Fh &fh, const Vec2 &u, H
     if (loc == TRI_LOC::V1) { hh = hh2; }
     if (loc == TRI_LOC::V2) { hh = hh0; }
     return loc;
-}
-
-static inline Vec2 centroid(const TriMesh &mesh, const Fh &fh)
-{
-    Hh hh0 = mesh.halfedge_handle(fh);
-    Hh hh1 = mesh.next_halfedge_handle(hh0);
-    Hh hh2 = mesh.next_halfedge_handle(hh1);
-    const auto u0 = get_xy(mesh, mesh.to_vertex_handle(hh0));
-    const auto u1 = get_xy(mesh, mesh.to_vertex_handle(hh1));
-    const auto u2 = get_xy(mesh, mesh.to_vertex_handle(hh2));
-    return (u0 + u1 + u2) / 3.;
-}
-
-static inline Vec2 circumcenter(const TriMesh &mesh, const Fh &fh)
-{
-    Hh hh0 = mesh.halfedge_handle(fh);
-    Hh hh1 = mesh.next_halfedge_handle(hh0);
-    Hh hh2 = mesh.next_halfedge_handle(hh1);
-    const auto u0 = get_xy(mesh, mesh.to_vertex_handle(hh0));
-    const auto u1 = get_xy(mesh, mesh.to_vertex_handle(hh1));
-    const auto u2 = get_xy(mesh, mesh.to_vertex_handle(hh2));
-    return circumcenter(u0, u1, u2);
 }
 
 static inline void split(TriMesh &mesh, Hh hh, Vh vh)
@@ -221,7 +227,7 @@ static inline bool is_collapsable(TriMesh &mesh, const Hh &hhc)
     for (Hh hh : mesh.voh_range(vhc)) // check n-2 triangles
     {
         Vh vh1 = mesh.to_vertex_handle(hh);
-        Vh vh2 = mesh.to_vertex_handle(mesh.next_halfedge_handle(hh));
+        Vh vh2 = apex_vertex_handle(mesh, hh);
         if (vh1 == vh0 || vh2 == vh0) continue;
         const auto u1 = get_xy(mesh, vh1);
         const auto u2 = get_xy(mesh, vh2);
@@ -241,14 +247,14 @@ static inline Vh collapse(TriMesh &mesh, Vh vh)
     for (Hh hh : mesh.voh_range(vh)) if (is_collapsable(mesh, hh))
     { hhc = hh; break; }
 
-    assert(hhc.is_valid());
+    if (!hhc.is_valid()) return Vh {};
 
     Vh vi = mesh.to_vertex_handle(hhc);
     mesh.collapse(hhc);
     return vi;
 }
 
-static Fh search_primitive(const TriMesh &mesh, const Vec2 &u1, const Fh &fh0, std::vector<Eh> &ehs)
+static Fh search_primitive(const TriMesh &mesh, const Vec2 &u1, const Fh &fh0, std::vector<Hh> &hhs)
 {
     if (is_inside(mesh, fh0, u1)) return fh0;
 
@@ -262,13 +268,8 @@ static Fh search_primitive(const TriMesh &mesh, const Vec2 &u1, const Fh &fh0, s
     {
         if (pp.status() == PLOW_STATUS::EDGE) // record segments
         {
-            Eh eh = mesh.edge_handle(pp.halfedge_handle());
-            if (is_segment(mesh, eh)) { ehs.push_back(eh); }
-        }
-        else if (pp.status() == PLOW_STATUS::VERT)
-        {
-            for (Eh eh : mesh.ve_range(pp.vertex_handle()))
-            if (is_segment(mesh, eh)) { ehs.push_back(eh); }
+            if (is_segment(mesh, pp.halfedge_handle()))
+            { hhs.push_back(pp.halfedge_handle()); }
         }
 
         Fh fh {}; // check if the target is reached
@@ -348,7 +349,7 @@ static inline Fh get_triangle(const TriMesh &mesh, const Event &event)
     Hh hh = mesh.find_halfedge(event.vh0, event.vh1);
     if (!hh.is_valid()) return Fh {};
 
-    Vh vh2 = mesh.to_vertex_handle(mesh.next_halfedge_handle(hh));
+    Vh vh2 = apex_vertex_handle(mesh, hh);
     if (vh2 != event.vh2) return Fh {};
 
     return mesh.face_handle(hh);
@@ -427,9 +428,6 @@ struct Encroachment
 
     inline bool operator()(const TriMesh &mesh, const Hh &hh) const // If true, split it
     { return !is_exterior(mesh, hh) && is_encroached(mesh, hh, cs2); }
-
-    inline bool operator()(const TriMesh &mesh, const Hh &hh, const Vec2 &u) const // If true, split it
-    { return !is_exterior(mesh, hh) && is_encroached(mesh, hh, u, cs2); }
 
     const double cs2; // (cos(pi - 2t))^2
 };
@@ -686,7 +684,7 @@ static int split_interior(TriMesh &mesh, const BadTriangle &bad_triangle, const 
     {
         const int ia = is_segment(a.event) ? 1 : 0;
         const int ib = is_segment(b.event) ? 1 : 0;
-        return (ia == ib) ? a.score < b.score : ia < ib;
+        return ia == ib ? a.score < b.score : ia < ib;
     };
 
     int n_new_vertices {};
@@ -715,12 +713,11 @@ static int split_interior(TriMesh &mesh, const BadTriangle &bad_triangle, const 
             const auto u = circumcenter(mesh, fr);
 
             // search for the primitive at which the circumcenter locates
-            std::vector<Eh> ess {}; Fh fo = search_primitive(mesh, u, fr, ess);
+            std::vector<Hh> hhs; Fh fo = search_primitive(mesh, u, fr, hhs);
 
-            if (!ess.empty()) // some segments are in the way hence encroached
+            if (!hhs.empty()) // some segments are in the way hence encroached
             {
-                for (Hh hh : mesh.eh_range(ess.front())) { if (!is_exterior(mesh, hh))// if (encroached(mesh, hh, u))
-                { events.push({ make_segment(mesh, hh), calc_priority(mesh, hh) }); } }
+                for (Hh hh : hhs) events.push({ make_segment(mesh, hh), calc_priority(mesh, hh) });
                 continue; // abort splitting
             }
 
@@ -804,16 +801,20 @@ static int split_interior(TriMesh &mesh, const BadTriangle &bad_triangle, const 
 
             // Before enqueueing encroached segments, free vertices in
             // the diametral circle of the segment should be deleted.
-            for ( ; ho.is_valid() && is_encroached(mesh, ho); ho = get_segment(mesh, event))
+            for (const auto &event2 : { event, Event { event.vh1, event.vh0, Vh {} } }) while (true)
             {
-                // the apex vertex
-                Vh vh = mesh.to_vertex_handle(mesh.next_halfedge_handle(ho));
+                Hh hh = get_segment(mesh, event2);
+                if (!hh.is_valid()) break;
 
-                // stop if the apex lies on a segment
+                Vh vh = apex_vertex_handle(mesh, hh);
                 if (is_segment(mesh, vh)) break;
+
+                // stop when the segment is no longer encroached
+                if (!is_encroached(mesh, hh)) break;
 
                 // remove the apex vertex
                 Vh vc = collapse(mesh, vh);
+                if (!vc.is_valid()) break;
 
                 // edges that are potentially non-Delaunay
                 std::vector<Eh> ehs {}; for (Eh eh : mesh.ve_range(vc)) { ehs.push_back(eh); }
@@ -822,13 +823,10 @@ static int split_interior(TriMesh &mesh, const BadTriangle &bad_triangle, const 
                 // record edges while maintaining Delaunayhood
                 for (Eh eh = delaunifier.next(); eh.is_valid(); eh = delaunifier.next())
                 { if (!is_exterior(mesh, eh)) eas.push_back(eh); }
-
-                // record affected triangles
-                for (Fh fh : mesh.vf_range(vc)) { if (!is_exterior(mesh, fh)) fas.push_back(fh); }
             }
 
-            // won't happen
-            if (!ho.is_valid()) continue;
+            // the segment was gone during last step (won't happen)
+            if (!(ho = get_segment(mesh, event)).is_valid()) continue;
 
             // find a position for splitting
             const auto u = splitting_position(mesh, ho);
