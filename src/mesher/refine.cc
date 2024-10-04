@@ -50,7 +50,7 @@ static inline bool is_endian(const TriMesh &mesh, const Vh &vh)
     return is_sharp(mesh, vh); // is the vertex from an original segment
 }
 
-struct IsSegment
+struct OnSegment
 {
     inline bool operator()(const TriMesh &mesh, const Hh &hh) const
     { return is_segment(mesh, hh); }
@@ -58,18 +58,18 @@ struct IsSegment
 
 static inline Vh segment_head(const TriMesh &mesh, const Hh &hh)
 {
-    Hh hi = hh; IsSegment pred {};
-    while (!is_endian(mesh, mesh.to_vertex_handle(hi)))
-    { if ((hi = next(mesh, pred, hi)) == hh) break; }
-    return mesh.to_vertex_handle(hi);
+    Hh hi = hh; OnSegment pred {};
+    while (!is_endian(mesh, mesh.from_vertex_handle(hi)))
+    { if ((hi = prev(mesh, pred, hi)) == hh) break; }
+    return mesh.from_vertex_handle(hi);
 }
 
 static inline Vh segment_tail(const TriMesh &mesh, const Hh &hh)
 {
-    Hh hi = hh; IsSegment pred {};
-    while (!is_endian(mesh, mesh.from_vertex_handle(hi)))
-    { if ((hi = prev(mesh, pred, hi)) == hh) break; }
-    return mesh.from_vertex_handle(hi);
+    Hh hi = hh; OnSegment pred {};
+    while (!is_endian(mesh, mesh.to_vertex_handle(hi)))
+    { if ((hi = next(mesh, pred, hi)) == hh) break; }
+    return mesh.to_vertex_handle(hi);
 }
 
 static void mark_endians(TriMesh &mesh)
@@ -366,6 +366,7 @@ static inline double apex_squared_cosine(const double min_angle)
 
 static inline double offcenter_height(const double cs)
 {
+    // formular adapted from Triangle lib [J.R.Shewchuk]
     return .475 * sqrt((1. + cs)/(1. - cs));
 }
 
@@ -440,20 +441,20 @@ static inline double the_shortest_len2(const TriMesh &mesh, const Fh &fh)
 
 static inline bool is_subtending_input_angle(const TriMesh &mesh, const Hh &hh)
 {
-    IsSegment pred {};
+    OnSegment pred {};
 
     // try getting two segments between which the base is
     Hh hh0 = next(mesh, pred, hh);
     Hh hh1 = prev(mesh, pred, hh);
 
-    // one or both ends of the base do not lie on segments
+    // one or both ends of the base not lying on any segment
     if (!is_segment(mesh, hh0) || !is_segment(mesh, hh1)) return false;
 
-    Vh vh00 = segment_head(mesh, hh0);
-    Vh vh01 = segment_tail(mesh, hh0);
-    Vh vh10 = segment_head(mesh, hh1);
-    Vh vh11 = segment_tail(mesh, hh1);
-    Vh vhc {}; // common end
+    Vh vh01 = segment_head(mesh, hh0);
+    Vh vh00 = segment_tail(mesh, hh0);
+    Vh vh11 = segment_head(mesh, hh1);
+    Vh vh10 = segment_tail(mesh, hh1);
+    Vh vhc {}; // the common end
 
     if (vh01 == vh10) vhc = vh01;
     if (vh00 == vh11) vhc = vh00;
@@ -577,6 +578,7 @@ static inline Vec2 circumcenter(const TriMesh &mesh, const Fh &fh)
 
 static inline Vec2 offcenter(const TriMesh &mesh, const Hh &hh, const double h)
 {
+    // off-center [A. Ungor]
     const auto u0 = get_xy(mesh, mesh.from_vertex_handle(hh));
     const auto u1 = get_xy(mesh, mesh.to_vertex_handle  (hh));
     const auto du = u1 - u0;
@@ -603,9 +605,8 @@ static inline Vec2 splitting_position(const TriMesh &mesh, const Hh &hh)
     const auto u1 = get_xy(mesh, mesh.to_vertex_handle  (hh));
     double t = 0.5;
 
-    /// The concentric circle algorithm is adapted from 'Triangle' lib
-    ///   to handle small angle in the input. Ref 'Delaunay Refinement
-    ///   Algorithms for Triangular Mesh Generation' [01 J.R.Shewchuk]
+    /// The concentric circle algorithm is adapted from Triangle
+    ///   lib to handle small angle in the input. [J.R.Shewchuk]
 
     Hh hi = mesh.opposite_halfedge_handle(hh);
 
@@ -740,11 +741,10 @@ static int refine_interior(TriMesh &mesh, const BadTriangle &bad_triangle, const
             // the segment was gone during refining
             if (!ho.is_valid()) continue;
 
-            // affected edges and triangles
+            // affected edges
             unique_vector<Hh> es {};
 
-            // Before enqueueing encroached segments, free vertices in
-            // the diametral circle of the segment should be deleted.
+            // remove free vertices within the diametral circle of the segment before splitting
             for (const auto &segment : { primitive, Primitive { primitive.vh1, primitive.vh0, Vh {} } }) while (true)
             {
                 Hh hh = get_segment(mesh, segment);
