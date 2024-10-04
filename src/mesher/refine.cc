@@ -11,7 +11,7 @@
 using namespace OpenMesh;
 
 ////////////////////////////////////////////////////////////////
-/// Predicates
+/// Attributes
 ////////////////////////////////////////////////////////////////
 
 static inline bool is_exterior(const TriMesh &mesh, const Fh &fh)
@@ -91,10 +91,10 @@ static inline bool is_delaunay(const TriMesh &mesh, const Eh &eh)
 {
     Hh hh0 = mesh.halfedge_handle(eh, 0);
     Hh hh1 = mesh.halfedge_handle(eh, 1);
-    const auto u0 = get_xy(mesh, hh0);
-    const auto u1 = get_xy(mesh, mesh.next_halfedge_handle(hh0));
-    const auto u2 = get_xy(mesh, hh1);
-    const auto u3 = get_xy(mesh, mesh.next_halfedge_handle(hh1));
+    const auto u0 = get_xy(mesh, mesh.to_vertex_handle(hh0));
+    const auto u1 = get_xy(mesh, mesh.to_vertex_handle(mesh.next_halfedge_handle(hh0)));
+    const auto u2 = get_xy(mesh, mesh.to_vertex_handle(hh1));
+    const auto u3 = get_xy(mesh, mesh.to_vertex_handle(mesh.next_halfedge_handle(hh1)));
     return fuzzy_delaunay(u0, u1, u2, u3);
 }
 
@@ -112,13 +112,13 @@ template <class T>
 struct unique_vector
 {
     inline void push_back(const T &v)
-    { if (!vt.count(v)) { vs.push_back(v); vt.insert(v); } }
+    { if (std::find(vs.begin(), vs.end(), v) == vs.end()) { vs.push_back(v); } }
 
     inline void pop_back()
-    { vt.erase(vs.back()); vs.pop_back(); }
+    { vs.pop_back(); }
 
     inline void clear()
-    { vs.clear(); vt.clear(); }
+    { vs.clear(); }
 
     inline const std::vector<T> &vector() const
     { return vs; }
@@ -126,40 +126,11 @@ struct unique_vector
 protected:
 
     std::vector<T> vs;
-    std::unordered_set<T> vt;
 };
 
 ////////////////////////////////////////////////////////////////
 /// Utilities
 ////////////////////////////////////////////////////////////////
-
-static inline Vh apex_vertex_handle(const TriMesh &mesh, const Hh &hh)
-{
-    assert(!mesh.is_boundary(hh));
-    return mesh.to_vertex_handle(mesh.next_halfedge_handle(hh));
-}
-
-static inline Vec2 centroid(const TriMesh &mesh, const Fh &fh)
-{
-    Hh hh0 = mesh.halfedge_handle(fh);
-    Hh hh1 = mesh.next_halfedge_handle(hh0);
-    Hh hh2 = mesh.next_halfedge_handle(hh1);
-    const auto u0 = get_xy(mesh, mesh.to_vertex_handle(hh0));
-    const auto u1 = get_xy(mesh, mesh.to_vertex_handle(hh1));
-    const auto u2 = get_xy(mesh, mesh.to_vertex_handle(hh2));
-    return (u0 + u1 + u2) / 3.;
-}
-
-static inline Vec2 circumcenter(const TriMesh &mesh, const Fh &fh)
-{
-    Hh hh0 = mesh.halfedge_handle(fh);
-    Hh hh1 = mesh.next_halfedge_handle(hh0);
-    Hh hh2 = mesh.next_halfedge_handle(hh1);
-    const auto u0 = get_xy(mesh, mesh.to_vertex_handle(hh0));
-    const auto u1 = get_xy(mesh, mesh.to_vertex_handle(hh1));
-    const auto u2 = get_xy(mesh, mesh.to_vertex_handle(hh2));
-    return circumcenter(u0, u1, u2);
-}
 
 static inline bool is_inside(const TriMesh &mesh, const Fh &fh, const Vec2 &u)
 {
@@ -227,7 +198,7 @@ static inline bool is_collapsable(TriMesh &mesh, const Hh &hhc)
     for (Hh hh : mesh.voh_range(vhc)) // check n-2 triangles
     {
         Vh vh1 = mesh.to_vertex_handle(hh);
-        Vh vh2 = apex_vertex_handle(mesh, hh);
+        Vh vh2 = mesh.to_vertex_handle(mesh.next_halfedge_handle(hh));
         if (vh1 == vh0 || vh2 == vh0) continue;
         const auto u1 = get_xy(mesh, vh1);
         const auto u2 = get_xy(mesh, vh2);
@@ -254,7 +225,7 @@ static inline Vh collapse(TriMesh &mesh, Vh vh)
     return vi;
 }
 
-static Fh search_primitive(const TriMesh &mesh, const Vec2 &u1, const Fh &fh0, std::vector<Hh> &hhs)
+static Fh search_primitive(const TriMesh &mesh, const Vec2 &u1, const Fh &fh0, Hh &hh)
 {
     if (is_inside(mesh, fh0, u1)) return fh0;
 
@@ -269,7 +240,7 @@ static Fh search_primitive(const TriMesh &mesh, const Vec2 &u1, const Fh &fh0, s
         if (pp.status() == PLOW_STATUS::EDGE) // record segments
         {
             if (is_segment(mesh, pp.halfedge_handle()))
-            { hhs.push_back(pp.halfedge_handle()); }
+            { hh = pp.halfedge_handle(); break; }
         }
 
         Fh fh {}; // check if the target is reached
@@ -313,7 +284,7 @@ struct std::hash<Primitive>
         size_t h0 = hash<Vh>{}(primitive.vh0);
         size_t h1 = hash<Vh>{}(primitive.vh1);
         size_t h2 = hash<Vh>{}(primitive.vh2);
-        return ((h0 ^ h1) << 1) ^ h2;
+        return (((h2 << 1) ^ h1) << 1) ^ h0;
     }
 };
 
@@ -349,7 +320,7 @@ static inline Fh get_triangle(const TriMesh &mesh, const Primitive &primitive)
     Hh hh = mesh.find_halfedge(primitive.vh0, primitive.vh1);
     if (!hh.is_valid()) return Fh {};
 
-    Vh vh2 = apex_vertex_handle(mesh, hh);
+    Vh vh2 = mesh.to_vertex_handle(mesh.next_halfedge_handle(hh));
     if (vh2 != primitive.vh2) return Fh {};
 
     return mesh.face_handle(hh);
@@ -364,7 +335,7 @@ static inline Hh get_segment(const TriMesh &mesh, const Primitive &primitive)
     return mesh.find_halfedge(primitive.vh0, primitive.vh1);
 }
 
-static inline Primitive make_triangle(const TriMesh &mesh, Fh fh)
+static inline Primitive make_primitive(const TriMesh &mesh, const Fh &fh)
 {
     Hh hh = mesh.halfedge_handle(fh);
     Hh hi = mesh.next_halfedge_handle(hh);
@@ -375,7 +346,7 @@ static inline Primitive make_triangle(const TriMesh &mesh, Fh fh)
     return { vh0, vh1, vh2 };
 }
 
-static inline Primitive make_segment(const TriMesh &mesh, Hh hh)
+static inline Primitive make_primitive(const TriMesh &mesh, const Hh &hh)
 {
     Vh vh0 = mesh.from_vertex_handle(hh);
     Vh vh1 = mesh.to_vertex_handle  (hh);
@@ -383,7 +354,7 @@ static inline Primitive make_segment(const TriMesh &mesh, Hh hh)
 }
 
 ////////////////////////////////////////////////////////////////
-/// Segment encroachment
+/// Constants
 ////////////////////////////////////////////////////////////////
 
 static inline double apex_squared_cosine(const double min_angle)
@@ -393,29 +364,32 @@ static inline double apex_squared_cosine(const double min_angle)
     return cs1*cs1;
 }
 
+static inline double offcenter_height(const double cs)
+{
+    return .475 * sqrt((1. + cs)/(1. - cs));
+}
+
+////////////////////////////////////////////////////////////////
+/// Segment encroachment
+////////////////////////////////////////////////////////////////
+
 static inline bool is_encroached(const TriMesh &mesh, const Hh &hh)
 {
-    const auto d0 = -get_dxy(mesh, mesh.next_halfedge_handle(hh));
-    const auto d1 =  get_dxy(mesh, mesh.prev_halfedge_handle(hh));
+    const auto u0 = get_xy(mesh, mesh.from_vertex_handle(hh));
+    const auto u1 = get_xy(mesh, mesh.to_vertex_handle  (hh));
+    const auto u2 = get_xy(mesh, mesh.to_vertex_handle  (mesh.next_halfedge_handle(hh)));
+    const auto d0 = u0 - u2;
+    const auto d1 = u1 - u2;
     return (dot(d0, d1) < 0.); // a.b < 0
 }
 
 static inline bool is_encroached(const TriMesh &mesh, const Hh &hh, const double cs2)
 {
-    const auto d0 = -get_dxy(mesh, mesh.next_halfedge_handle(hh));
-    const auto d1 =  get_dxy(mesh, mesh.prev_halfedge_handle(hh));
-    const double d00 = dot(d0, d0); // a^2
-    const double d11 = dot(d1, d1); // b^2
-    const double d01 = dot(d0, d1); // a.b
-    return (d01 < 0.) && (d01*d01 >= d00*d11*cs2); // a.b < 0 and |a.b| > (a*b)|cos(t0)|
-}
-
-static inline bool is_encroached(const TriMesh &mesh, const Hh &hh, const Vec2 &u, const double cs2)
-{
     const auto u0 = get_xy(mesh, mesh.from_vertex_handle(hh));
     const auto u1 = get_xy(mesh, mesh.to_vertex_handle  (hh));
-    const auto d0 = u0 - u;
-    const auto d1 = u1 - u;
+    const auto u2 = get_xy(mesh, mesh.to_vertex_handle  (mesh.next_halfedge_handle(hh)));
+    const auto d0 = u0 - u2;
+    const auto d1 = u1 - u2;
     const double d00 = dot(d0, d0); // a^2
     const double d11 = dot(d1, d1); // b^2
     const double d01 = dot(d0, d1); // a.b
@@ -435,6 +409,34 @@ struct Encroachment
 ////////////////////////////////////////////////////////////////
 /// Triangle quality
 ////////////////////////////////////////////////////////////////
+
+static inline Hh the_shortest_edge(const TriMesh &mesh, const Fh &fh)
+{
+    Hh hh = mesh.halfedge_handle(fh);
+    Hh hi = mesh.next_halfedge_handle(hh);
+    Hh hj = mesh.prev_halfedge_handle(hh);
+    const auto u0 = get_xy(mesh, mesh.to_vertex_handle(hi));
+    const auto u1 = get_xy(mesh, mesh.to_vertex_handle(hj));
+    const auto u2 = get_xy(mesh, mesh.to_vertex_handle(hh));
+    const double d0 = dot(u2 - u1, u2 - u1); // len2(hh)
+    const double d1 = dot(u0 - u2, u0 - u2); // len2(hi)
+    const double d2 = dot(u1 - u0, u1 - u0); // len2(hj)
+    return (d1<d0) ? (d1<d2 ? hi : hj) : (d0<d2 ? hh : hj);
+}
+
+static inline double the_shortest_len2(const TriMesh &mesh, const Fh &fh)
+{
+    Hh hh = mesh.halfedge_handle(fh);
+    Hh hi = mesh.next_halfedge_handle(hh);
+    Hh hj = mesh.prev_halfedge_handle(hh);
+    const auto u0 = get_xy(mesh, mesh.to_vertex_handle(hi));
+    const auto u1 = get_xy(mesh, mesh.to_vertex_handle(hj));
+    const auto u2 = get_xy(mesh, mesh.to_vertex_handle(hh));
+    const double d0 = dot(u2 - u1, u2 - u1); // len2(hh)
+    const double d1 = dot(u0 - u2, u0 - u2); // len2(hi)
+    const double d2 = dot(u1 - u0, u1 - u0); // len2(hj)
+    return (d1<d0) ? (d1<d2 ? d1 : d2) : (d0<d2 ? d0 : d2);
+}
 
 static inline bool is_subtending_input_angle(const TriMesh &mesh, const Hh &hh)
 {
@@ -562,23 +564,40 @@ struct BadTriangle
 /// Refinement
 ////////////////////////////////////////////////////////////////
 
-static inline double calc_priority(const TriMesh &mesh, const Hh &hh)
+static inline Vec2 circumcenter(const TriMesh &mesh, const Fh &fh)
 {
-    return mesh.calc_edge_sqr_length(hh);
+    Hh hh = mesh.halfedge_handle(fh);
+    Hh hi = mesh.next_halfedge_handle(hh);
+    Hh hj = mesh.prev_halfedge_handle(hh);
+    const auto u0 = get_xy(mesh, mesh.to_vertex_handle(hi));
+    const auto u1 = get_xy(mesh, mesh.to_vertex_handle(hj));
+    const auto u2 = get_xy(mesh, mesh.to_vertex_handle(hh));
+    return circumcenter(u0, u1, u2);
 }
 
-static inline double calc_priority(const TriMesh &mesh, const Fh &fh)
+static inline Vec2 offcenter(const TriMesh &mesh, const Hh &hh, const double h)
 {
-    Hh hh0 = mesh.halfedge_handle(fh);
-    Hh hh1 = mesh.next_halfedge_handle(hh0);
-    Hh hh2 = mesh.prev_halfedge_handle(hh0);
-    const double l0 = mesh.calc_edge_sqr_length(hh0);
-    const double l1 = mesh.calc_edge_sqr_length(hh1);
-    const double l2 = mesh.calc_edge_sqr_length(hh2);
-    return (l1<l0) ? (l1<l2 ? l1 : l2) : (l0<l2 ? l0 : l2); // the shortest edge
+    const auto u0 = get_xy(mesh, mesh.from_vertex_handle(hh));
+    const auto u1 = get_xy(mesh, mesh.to_vertex_handle  (hh));
+    const auto du = u1 - u0;
+    const Vec2 dv { -du[1], du[0] };
+    return u0 + du*.5 + dv*h;
 }
 
-static inline Vec2 splitting_position(const TriMesh &mesh, Hh hh)
+static inline Vec2 splitting_position(const TriMesh &mesh, const Fh &fh, const double h)
+{
+    Hh hh = the_shortest_edge(mesh, fh);
+    const auto u0 = get_xy(mesh, mesh.from_vertex_handle(hh));
+    const auto u1 = get_xy(mesh, mesh.to_vertex_handle  (hh));
+    const auto uc = circumcenter(mesh, fh);
+    const auto uh = offcenter(mesh, hh, h);
+    const auto um = (u0 + u1) * .5;
+    const double dc = dot(uc - um, uc - um);
+    const double dh = dot(uh - um, uh - um);
+    return (dc>dh) ? uh : uc;
+}
+
+static inline Vec2 splitting_position(const TriMesh &mesh, const Hh &hh)
 {
     const auto u0 = get_xy(mesh, mesh.from_vertex_handle(hh));
     const auto u1 = get_xy(mesh, mesh.to_vertex_handle  (hh));
@@ -614,7 +633,7 @@ static inline Vec2 splitting_position(const TriMesh &mesh, Hh hh)
     return u0*(1-t) + u1*t;
 }
 
-static int split_segments(TriMesh &mesh, const Encroachment &encroached)
+static int refine_segments(TriMesh &mesh, const Encroachment &encroached)
 {
     int n_new_vertices {};
 
@@ -624,15 +643,15 @@ static int split_segments(TriMesh &mesh, const Encroachment &encroached)
     // the diametral circle of the segment should be deleted.
     // [TODO]
 
-    std::deque<Primitive> frontier {}; // primitives to split
+    std::deque<Primitive> segments {}; // primitives to split
 
     for (Eh eh : mesh.edges()) { if (is_segment(mesh, eh))
     for (Hh hh : mesh.eh_range(eh)) { if (encroached(mesh, hh))
-    { frontier.push_back(make_segment(mesh, hh)); } } }
+    { segments.push_back(make_primitive(mesh, hh)); } } }
 
-    while (!frontier.empty())
+    while (!segments.empty())
     {
-        auto primitive = frontier.front(); frontier.pop_front();
+        auto primitive = segments.front(); segments.pop_front();
 
         if (is_segment(primitive))
         {
@@ -646,7 +665,8 @@ static int split_segments(TriMesh &mesh, const Encroachment &encroached)
             const auto u = splitting_position(mesh, ho);
 
             // split the segment
-            Vh vo = mesh.new_vertex({ u[0], u[1], 0 });
+            Vh vo = mesh.new_vertex({ 0,0,0 });
+            set_xy(mesh, vo, u);
             split(mesh, ho, vo);
 
             // affected edges
@@ -657,17 +677,17 @@ static int split_segments(TriMesh &mesh, const Encroachment &encroached)
             { ehs[ne++] = mesh.edge_handle(mesh.next_halfedge_handle(hh)); }
             delaunifier.reset(); delaunifier.enqueue(ehs, ne); }
 
-            // record encountered edges while testing Delaunayhood
+            // record affected edges while testing Delaunayhood
             for (Eh eh = delaunifier.next(); eh.is_valid(); eh = delaunifier.next())
             { if (!is_exterior(mesh, eh)) eas.push_back(eh); }
 
             // check encroachment of two new segments
             for (Eh eh : mesh.ve_range(vo)) { if (is_segment(mesh, eh)) eas.push_back(eh); }
 
-            // check encroachment of encountered segments
+            // check encroachment of affected segments
             for (Eh eh : eas.vector()) { if (!is_deleted(mesh, eh)) if (is_segment(mesh, eh))
             for (Hh hh : mesh.eh_range(eh)) { if (encroached(mesh, hh))
-            { frontier.push_back(make_segment(mesh, hh)); } } }
+            { segments.push_back(make_primitive(mesh, hh)); } } }
 
             ++n_new_vertices;
         }
@@ -676,48 +696,133 @@ static int split_segments(TriMesh &mesh, const Encroachment &encroached)
     return 0;
 }
 
-static int split_interior(TriMesh &mesh, const BadTriangle &bad_triangle, const Encroachment &encroached)
+static int refine_interior(TriMesh &mesh, const BadTriangle &bad_triangle, const Encroachment &encroached)
 {
-    struct Entry { Primitive primitive; double score; };
+    using Priority = float;
 
-    const auto comp = [](const Entry &a, const Entry &b)
-    {
-        const int ia = is_segment(a.primitive) ? 1 : 0;
-        const int ib = is_segment(b.primitive) ? 1 : 0;
-        return ia == ib ? a.score < b.score : ia < ib;
-    };
+    struct Entry { Primitive primitive; Priority priority; };
+
+    const auto less = [](const Entry &a, const Entry &b)
+    { return a.priority < b.priority; };
+
+    // Key is the length of the shortest edge. The shorter,
+    //   the higher the order of the triangle in the queue.
+    // Use negative value to place the shorter ones on top.
+    const auto calc_priority = [](const TriMesh &mesh, const Fh &fh)
+    { return static_cast<Priority>(-the_shortest_len2(mesh, fh)); };
+
+    // constant of off-center [A. Ungor]
+    const double off_h = offcenter_height(sqrt(bad_triangle.max_cos2));
 
     int n_new_vertices {};
 
     auto delaunifier = make_delaunifier(mesh, EuclideanDelaunay {});
 
-    std::priority_queue<Entry, std::deque<Entry>, decltype(comp)> frontier(comp);
+    // segments to split
+    std::deque<Primitive> segments {};
+
+    // triangles to refine
+    std::priority_queue<Entry, std::deque<Entry>, decltype(less)> triangles(less);
 
     // check quality of all triangles at initialization
     for (Fh fh : mesh.faces()) if (bad_triangle(mesh, fh))
-    { frontier.push({ make_triangle(mesh, fh), calc_priority(mesh, fh) }); }
+    { triangles.push({ make_primitive(mesh, fh), calc_priority(mesh, fh) }); }
 
-    while (!frontier.empty())
+    while (true)
     {
-        auto primitive = frontier.top().primitive; frontier.pop();
-
-        if (is_triangle(primitive))
+        if (!segments.empty())
         {
+            auto primitive = segments.front(); segments.pop_front();
+
+            // restore the segment
+            Hh ho = get_segment(mesh, primitive);
+
+            // the segment was gone during refining
+            if (!ho.is_valid()) continue;
+
+            // affected edges and triangles
+            unique_vector<Hh> es {};
+
+            // Before enqueueing encroached segments, free vertices in
+            // the diametral circle of the segment should be deleted.
+            for (const auto &segment : { primitive, Primitive { primitive.vh1, primitive.vh0, Vh {} } }) while (true)
+            {
+                Hh hh = get_segment(mesh, segment);
+                if (!hh.is_valid()) break;
+
+                Vh vh = mesh.to_vertex_handle(mesh.next_halfedge_handle(hh));
+                if (is_segment(mesh, vh)) break;
+
+                // stop when the segment is no longer encroached within the diametral circle
+                if (!is_encroached(mesh, hh)) break;
+
+                // remove the apex vertex
+                Vh vc = collapse(mesh, vh);
+                if (!vc.is_valid()) break;
+
+                // edges that are potentially non-Delaunay
+                std::vector<Eh> ehs {}; for (Eh eh : mesh.ve_range(vc)) { ehs.push_back(eh); }
+                delaunifier.reset(); delaunifier.enqueue(ehs.data(), (int)ehs.size());
+
+                // record edges while maintaining Delaunayhood
+                for (Eh eh = delaunifier.flip(); eh.is_valid(); eh = delaunifier.flip()) {
+                for (Hh hh : mesh.eh_range(eh)) if (!is_exterior(mesh, hh)) es.push_back(hh); }
+            }
+
+            // the segment was gone during last step (won't happen)
+            if (!(ho = get_segment(mesh, primitive)).is_valid()) continue;
+
+            // find a position for splitting
+            const auto u = splitting_position(mesh, ho);
+
+            // split the segment
+            Vh vo = mesh.new_vertex({ 0,0,0 });
+            set_xy(mesh, vo, u);
+            split(mesh, ho, vo);
+
+            // edges that are potentially non-Delaunay
+            { Eh ehs[4]; int ne {}; for (Hh hh : mesh.voh_range(vo)) if (!mesh.is_boundary(hh))
+            { ehs[ne++] = mesh.edge_handle(mesh.next_halfedge_handle(hh)); }
+            delaunifier.reset(); delaunifier.enqueue(ehs, ne); }
+
+            // record affected edges while maintaining Delaunayhood
+            for (Eh eh = delaunifier.next(); eh.is_valid(); eh = delaunifier.next()) {
+            for (Hh hh : mesh.eh_range(eh)) if (!is_exterior(mesh, hh)) es.push_back(hh); }
+
+            // record two new segments
+            for (Eh eh : mesh.ve_range(vo)) { if (is_segment(mesh, eh))
+            for (Hh hh : mesh.eh_range(eh)) if (!is_exterior(mesh, hh)) es.push_back(hh); }
+
+            // check encroachment of affected segments
+            for (Hh hh : es.vector()) { if (!is_deleted(mesh, hh) && is_segment(mesh, hh) && encroached(mesh, hh))
+            { segments.push_back(make_primitive(mesh, hh)); } }
+
+            // check quality of affected triangles
+            for (Hh hh : es.vector()) { if (!is_deleted(mesh, hh) && !is_exterior(mesh, hh)) { Fh fh = mesh.face_handle(hh);
+            if (bad_triangle(mesh, fh)) { triangles.push({ make_primitive(mesh, fh), calc_priority(mesh, fh) }); } } }
+
+            ++n_new_vertices;
+        }
+
+        else if (!triangles.empty())
+        {            
+            auto primitive = triangles.top().primitive; triangles.pop();
+
             // restore the triangle
             Fh fr = get_triangle(mesh, primitive);
 
             // the triangle was gone during refining
             if (!fr.is_valid()) continue;
 
-            // find the circumcenter of the problematic triangle
-            const auto u = circumcenter(mesh, fr);
+            // find the circumcenter of the triangle
+            const auto u = splitting_position(mesh, fr, off_h);
 
             // search for the primitive at which the circumcenter locates
-            std::vector<Hh> hhs; Fh fo = search_primitive(mesh, u, fr, hhs);
+            Hh sh; Fh fo = search_primitive(mesh, u, fr, sh);
 
-            if (!hhs.empty()) // some segments are in the way hence encroached
+            if (sh.is_valid()) // some segments are in the way hence encroached
             {
-                for (Hh hh : hhs) frontier.push({ make_segment(mesh, hh), calc_priority(mesh, hh) });
+                segments.push_back(make_primitive(mesh, sh));
                 continue; // abort splitting
             }
 
@@ -736,131 +841,61 @@ static int split_interior(TriMesh &mesh, const BadTriangle &bad_triangle, const 
             if ((int)loc & (int)TRI_LOC::VS) continue;
 
             // allocate a new vertex
-            Vh vo = mesh.new_vertex({ u[0], u[1], 0 });
+            Vh vo = mesh.new_vertex({ 0,0,0 });
+            set_xy(mesh, vo, u);
 
             // insert the vertex into the triangle or onto the edge
             if (loc == TRI_LOC::IN) split(mesh, fo, vo);
             else                    split(mesh, ho, vo);
 
-            // affected edges and triangles
-            unique_vector<Eh> eas {};
-            unique_vector<Fh> fas {};
+            // affected edges
+            unique_vector<Hh> es {};
 
             // edges that are potentially non-Delaunay
             { Eh ehs[4]; int ne {}; for (Hh hh : mesh.voh_range(vo)) if (!mesh.is_boundary(hh))
             { ehs[ne++] = mesh.edge_handle(mesh.next_halfedge_handle(hh)); }
             delaunifier.reset(); delaunifier.enqueue(ehs, ne); }
 
-            // record encountered edges while maintaining Delaunayhood
-            for (Eh eh = delaunifier.next(); eh.is_valid(); eh = delaunifier.next())
-            { if (!is_exterior(mesh, eh)) eas.push_back(eh); }
+            // record affected edges while maintaining Delaunayhood
+            for (Eh eh = delaunifier.next(); eh.is_valid(); eh = delaunifier.next()) {
+            for (Hh hh : mesh.eh_range(eh)) if (!is_exterior(mesh, hh)) es.push_back(hh); }
 
-            // check encroachment over encountered segments
-            std::vector<Hh> hss {};
-            for (Eh eh : eas.vector()) { if (!is_deleted(mesh, eh)) if (is_segment(mesh, eh))
-            for (Hh hh : mesh.eh_range(eh)) { if (encroached(mesh, hh)) { hss.push_back(hh); } } }
+            // check encroachment over affected segments
+            std::vector<Hh> hhs {}; for (Hh hh : es.vector()) {
+            if (!is_deleted(mesh, hh) && is_segment(mesh, hh) && encroached(mesh, hh)) hhs.push_back(hh); }
 
-            if (!hss.empty()) // some segments are encroached
+            // record encroached segments
+            if (!hhs.empty()) { for (Hh hh : hhs) segments.push_back(make_primitive(mesh, hh)); }
+
+            // undo vertex insertion if some segments are encroached
+            while (!hhs.empty())
             {
-                for (Hh hh : hss) { frontier.push({ make_segment(mesh, hh), calc_priority(mesh, hh) }); }
-
-                // undo vertex insertion
                 Vh vc = collapse(mesh, vo);
-
-                // edges that are potentially non-Delaunay
-                { std::vector<Eh> ecs {}; for (Eh eh : mesh.ve_range(vc)) { ecs.push_back(eh); }
-                delaunifier.reset(); delaunifier.enqueue(ecs.data(), (int)ecs.size()); }
-
-                // record encountered edges while maintaining Delaunayhood
-                for (Eh eh = delaunifier.next(); eh.is_valid(); eh = delaunifier.next())
-                { if (!is_exterior(mesh, eh)) eas.push_back(eh); }
-            }
-
-            // encountered triangles
-            for (Eh eh : eas.vector()) if (!is_deleted(mesh, eh)) { for (Fh fh : mesh.ef_range(eh))
-            if (fh.is_valid()) if (!is_exterior(mesh, fh)) { fas.push_back(fh); } }
-
-            // check quality of these triangles
-            for (Fh fh : fas.vector()) if (!is_deleted(mesh, fh)) { if (bad_triangle(mesh, fh))
-            { frontier.push({ make_triangle(mesh, fh), calc_priority(mesh, fh) }); } }
-
-            ++n_new_vertices;
-        }
-
-        else if (is_segment(primitive))
-        {
-            // restore the segment
-            Hh ho = get_segment(mesh, primitive);
-
-            // the segment was gone during refining
-            if (!ho.is_valid()) continue;
-
-            // affected edges and triangles
-            unique_vector<Eh> eas {};
-            unique_vector<Fh> fas {};
-
-            // Before enqueueing encroached segments, free vertices in
-            // the diametral circle of the segment should be deleted.
-            for (const auto &segment : { primitive, Primitive { primitive.vh1, primitive.vh0, Vh {} } }) while (true)
-            {
-                Hh hh = get_segment(mesh, segment);
-                if (!hh.is_valid()) break;
-
-                Vh vh = apex_vertex_handle(mesh, hh);
-                if (is_segment(mesh, vh)) break;
-
-                // stop when the segment is no longer encroached
-                if (!is_encroached(mesh, hh)) break;
-
-                // remove the apex vertex
-                Vh vc = collapse(mesh, vh);
                 if (!vc.is_valid()) break;
+
+                // In the extreme concave cases will the undo-insertion fail.
+                // One can ease the concavity by unflipping around its 1-ring.
+                // [TODO]
 
                 // edges that are potentially non-Delaunay
                 std::vector<Eh> ehs {}; for (Eh eh : mesh.ve_range(vc)) { ehs.push_back(eh); }
                 delaunifier.reset(); delaunifier.enqueue(ehs.data(), (int)ehs.size());
 
-                // record edges while maintaining Delaunayhood
-                for (Eh eh = delaunifier.next(); eh.is_valid(); eh = delaunifier.next())
-                { if (!is_exterior(mesh, eh)) eas.push_back(eh); }
+                // record affected edges while maintaining Delaunayhood
+                for (Eh eh = delaunifier.flip(); eh.is_valid(); eh = delaunifier.flip()) {
+                for (Hh hh : mesh.eh_range(eh)) if (!is_exterior(mesh, hh)) es.push_back(hh); }
+
+                break;
             }
 
-            // the segment was gone during last step (won't happen)
-            if (!(ho = get_segment(mesh, primitive)).is_valid()) continue;
-
-            // find a position for splitting
-            const auto u = splitting_position(mesh, ho);
-
-            // split the segment
-            Vh vo = mesh.new_vertex({ u[0], u[1], 0 });
-            split(mesh, ho, vo);
-
-            // edges that are potentially non-Delaunay
-            { Eh ehs[4]; int ne {}; for (Hh hh : mesh.voh_range(vo)) if (!mesh.is_boundary(hh))
-            { ehs[ne++] = mesh.edge_handle(mesh.next_halfedge_handle(hh)); }
-            delaunifier.reset(); delaunifier.enqueue(ehs, ne); }
-
-            // record encountered edges while maintaining Delaunayhood
-            for (Eh eh = delaunifier.next(); eh.is_valid(); eh = delaunifier.next())
-            { if (!is_exterior(mesh, eh)) eas.push_back(eh); }
-
-            // check encroachment of two new segments afterwards
-            for (Eh eh : mesh.ve_range(vo)) { if (is_segment(mesh, eh)) eas.push_back(eh); }
-
-            // check encroachment of encountered segments
-            for (Eh eh : eas.vector()) { if (!is_deleted(mesh, eh)) if (is_segment(mesh, eh))
-            for (Hh hh : mesh.eh_range(eh)) { if (encroached(mesh, hh))
-            { frontier.push({ make_segment(mesh, hh), calc_priority(mesh, hh) }); } } }
-
             // check quality of affected triangles
-            for (Eh eh : eas.vector()) { if (!is_deleted(mesh, eh)) for (Fh fh : mesh.ef_range(eh))
-            if (fh.is_valid()) if (!is_exterior(mesh, fh)) { fas.push_back(fh); } }
-
-            for (Fh fh : fas.vector()) { if (!is_deleted(mesh, fh)) if (bad_triangle(mesh, fh))
-            { frontier.push({ make_triangle(mesh, fh), calc_priority(mesh, fh) }); } }
+            for (Hh hh : es.vector()) { if (!is_deleted(mesh, hh) && !is_exterior(mesh, hh)) { Fh fh = mesh.face_handle(hh);
+            if (bad_triangle(mesh, fh)) { triangles.push({ make_primitive(mesh, fh), calc_priority(mesh, fh) }); } } }
 
             ++n_new_vertices;
         }
+
+        else break;
     }
 
     return 0;
@@ -880,9 +915,9 @@ int refine(TriMesh &mesh, const double min_angle, const double max_length, const
 
     mark_endians(mesh);
 
-    split_segments(mesh, encroached);
+    refine_segments(mesh, encroached);
 
-    split_interior(mesh, bad_triangle, encroached);
+    refine_interior(mesh, bad_triangle, encroached);
 
     mesh.garbage_collection();
 
