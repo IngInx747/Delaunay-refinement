@@ -22,7 +22,7 @@ inline bool fuzzy_delaunay(const Vec2 &u0, const Vec2 &u1, const Vec2 &u2, const
 //   3  
 inline bool exact_delaunay(const Vec2 &u0, const Vec2 &u1, const Vec2 &u2, const Vec2 &u3)
 {
-    return incircle(u0, u1, u2, u3) <= 0; // == incircle(u2, u3, u0, u1)
+    return incircle(u0, u1, u2, u3) <= 0; // equivalent to incircle(u2, u3, u0, u1)
 }
 
 //   1  
