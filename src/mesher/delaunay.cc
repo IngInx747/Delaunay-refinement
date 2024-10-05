@@ -13,10 +13,10 @@ static inline bool is_delaunay(const TriMesh &mesh, const Eh &eh)
 {
     Hh hh0 = mesh.halfedge_handle(eh, 0);
     Hh hh1 = mesh.halfedge_handle(eh, 1);
-    const auto u0 = get_xy(mesh, hh0);
-    const auto u1 = get_xy(mesh, mesh.next_halfedge_handle(hh0));
-    const auto u2 = get_xy(mesh, hh1);
-    const auto u3 = get_xy(mesh, mesh.next_halfedge_handle(hh1));
+    const auto u0 = get_xy(mesh, mesh.to_vertex_handle(hh0));
+    const auto u1 = get_xy(mesh, mesh.to_vertex_handle(mesh.next_halfedge_handle(hh0)));
+    const auto u2 = get_xy(mesh, mesh.to_vertex_handle(hh1));
+    const auto u3 = get_xy(mesh, mesh.to_vertex_handle(mesh.next_halfedge_handle(hh1)));
     return fuzzy_delaunay(u0, u1, u2, u3);
 }
 
