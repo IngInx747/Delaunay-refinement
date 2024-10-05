@@ -654,44 +654,41 @@ static int refine_segments(TriMesh &mesh, const Encroachment &encroached)
     {
         auto primitive = segments.front(); segments.pop_front();
 
-        if (is_segment(primitive))
-        {
-            // restore the segment
-            Hh ho = get_segment(mesh, primitive);
+        // restore the segment
+        Hh ho = get_segment(mesh, primitive);
 
-            // the segment was gone during refining
-            if (!ho.is_valid()) continue;
+        // the segment was gone during refining
+        if (!ho.is_valid()) continue;
 
-            // find a position for splitting
-            const auto u = splitting_position(mesh, ho);
+        // find a position for splitting
+        const auto u = splitting_position(mesh, ho);
 
-            // split the segment
-            Vh vo = mesh.new_vertex({ 0,0,0 });
-            set_xy(mesh, vo, u);
-            split(mesh, ho, vo);
+        // split the segment
+        Vh vo = mesh.new_vertex({ 0,0,0 });
+        set_xy(mesh, vo, u);
+        split(mesh, ho, vo);
 
-            // affected edges
-            unique_vector<Eh> eas {};
+        // affected edges
+        unique_vector<Eh> eas {};
 
-            // edges that are potentially non-Delaunay
-            { Eh ehs[4]; int ne {}; for (Hh hh : mesh.voh_range(vo)) if (!mesh.is_boundary(hh))
-            { ehs[ne++] = mesh.edge_handle(mesh.next_halfedge_handle(hh)); }
-            delaunifier.reset(); delaunifier.enqueue(ehs, ne); }
+        // edges that are potentially non-Delaunay
+        { Eh ehs[4]; int ne {}; for (Hh hh : mesh.voh_range(vo)) if (!mesh.is_boundary(hh))
+        { ehs[ne++] = mesh.edge_handle(mesh.next_halfedge_handle(hh)); }
+        delaunifier.reset(); delaunifier.enqueue(ehs, ne); }
 
-            // record affected edges while testing Delaunayhood
-            for (Eh eh = delaunifier.next(); eh.is_valid(); eh = delaunifier.next())
-            { if (!is_exterior(mesh, eh)) eas.push_back(eh); }
+        // record affected edges while testing Delaunayhood
+        for (Eh eh = delaunifier.next(); eh.is_valid(); eh = delaunifier.next())
+        { if (!is_exterior(mesh, eh)) eas.push_back(eh); }
 
-            // check encroachment of two new segments
-            for (Eh eh : mesh.ve_range(vo)) { if (is_segment(mesh, eh)) eas.push_back(eh); }
+        // check encroachment of two new segments
+        for (Eh eh : mesh.ve_range(vo)) { if (is_segment(mesh, eh)) eas.push_back(eh); }
 
-            // check encroachment of affected segments
-            for (Eh eh : eas.vector()) { if (!is_deleted(mesh, eh)) if (is_segment(mesh, eh))
-            for (Hh hh : mesh.eh_range(eh)) { if (encroached(mesh, hh))
-            { segments.push_back(make_primitive(mesh, hh)); } } }
+        // check encroachment of affected segments
+        for (Eh eh : eas.vector()) { if (!is_deleted(mesh, eh)) if (is_segment(mesh, eh))
+        for (Hh hh : mesh.eh_range(eh)) { if (encroached(mesh, hh))
+        { segments.push_back(make_primitive(mesh, hh)); } } }
 
-            ++n_new_vertices;
-        }
+        ++n_new_vertices;
     }
 
     return 0;
