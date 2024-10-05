@@ -33,12 +33,9 @@ inline bool exact_delaunay(const Vec2 &u0, const Vec2 &u1, const Vec2 &u2, const
 inline bool fuzzy_convex(const Vec2 &u0, const Vec2 &u1, const Vec2 &u2, const Vec2 &u3)
 {
     constexpr double kEps = 1e-10;
-    const auto d1 = normalize(u0 - u1);
-    const auto d2 = normalize(u2 - u1);
-    const auto d3 = normalize(u1 - u3);
-    const double c0 = cross(d3, d1);
-    const double c1 = cross(d3, d2);
-    return abs(c0)<kEps ? false : abs(c1)<kEps ? false : c0*c1<0;
+    const double d0 = cross(u1 - u0, u3 - u0);
+    const double d1 = cross(u3 - u2, u1 - u2);
+    return d0 > kEps && d1 > kEps;
 }
 
 //
@@ -51,11 +48,8 @@ inline bool fuzzy_convex(const Vec2 &u0, const Vec2 &u1, const Vec2 &u2, const V
 inline bool exact_convex(const Vec2 &u0, const Vec2 &u1, const Vec2 &u2, const Vec2 &u3)
 {
     const int r0 = orientation(u3, u0, u1);
-    const int r1 = orientation(u0, u1, u2);
-    const int r2 = orientation(u1, u2, u3);
-    const int r3 = orientation(u2, u3, u0);
-    return r0 > 0 && r1 > 0 && r2 > 0 && r3 > 0 ||
-           r0 < 0 && r1 < 0 && r2 < 0 && r3 < 0 ;
+    const int r1 = orientation(u1, u2, u3);
+    return r0 > 0 && r1 > 0;
 }
 
 inline Vec2 circumcenter(const Vec2 &u0, const Vec2 &u1, const Vec2 &u2)
