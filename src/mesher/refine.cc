@@ -459,7 +459,7 @@ static inline bool is_subtending_input_angle(const TriMesh &mesh, const Hh &hh)
     if (vh01 == vh10) vhc = vh01;
     if (vh00 == vh11) vhc = vh00;
 
-    // two segment not sharing a common end
+    // two segments not sharing a common end
     if (!vhc.is_valid()) return false;
 
     const auto u0 = get_xy(mesh, mesh.from_vertex_handle(hh));
