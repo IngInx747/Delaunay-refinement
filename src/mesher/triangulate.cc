@@ -23,10 +23,10 @@ static inline bool is_delaunay(const TriMesh &mesh, const Eh &eh)
 {
     Hh hh0 = mesh.halfedge_handle(eh, 0);
     Hh hh1 = mesh.halfedge_handle(eh, 1);
-    const auto u0 = get_xy(mesh, hh0);
-    const auto u1 = get_xy(mesh, mesh.next_halfedge_handle(hh0));
-    const auto u2 = get_xy(mesh, hh1);
-    const auto u3 = get_xy(mesh, mesh.next_halfedge_handle(hh1));
+    const auto u0 = get_xy(mesh, mesh.to_vertex_handle(hh0));
+    const auto u1 = get_xy(mesh, mesh.to_vertex_handle(mesh.next_halfedge_handle(hh0)));
+    const auto u2 = get_xy(mesh, mesh.to_vertex_handle(hh1));
+    const auto u3 = get_xy(mesh, mesh.to_vertex_handle(mesh.next_halfedge_handle(hh1)));
     return fuzzy_delaunay(u0, u1, u2, u3);
 }
 
@@ -93,7 +93,8 @@ static inline void add_points(TriMesh &mesh, const std::vector<Vec2> &vs)
 
     for (const auto &u : vs)
     {
-        mesh.new_vertex({ u[0], u[1], 0 });
+        Vh vh = mesh.new_vertex({ 0,0,0 });
+        set_xy(mesh, vh, u);
     }
 }
 
@@ -129,10 +130,14 @@ static inline void set_domain(TriMesh &mesh)
     ur += d;
 
     // create a square as the initial mesh
-    Vh vh0 = mesh.new_vertex({ bl[0], bl[1], 0 });
-    Vh vh1 = mesh.new_vertex({ ur[0], bl[1], 0 });
-    Vh vh2 = mesh.new_vertex({ ur[0], ur[1], 0 });
-    Vh vh3 = mesh.new_vertex({ bl[0], ur[1], 0 });
+    Vh vh0 = mesh.new_vertex({ 0,0,0 });
+    Vh vh1 = mesh.new_vertex({ 0,0,0 });
+    Vh vh2 = mesh.new_vertex({ 0,0,0 });
+    Vh vh3 = mesh.new_vertex({ 0,0,0 });
+    set_xy(mesh, vh0, { bl[0], bl[1] });
+    set_xy(mesh, vh1, { ur[0], bl[1] });
+    set_xy(mesh, vh2, { ur[0], ur[1] });
+    set_xy(mesh, vh3, { bl[0], ur[1] });
     mesh.add_face({ vh0, vh1, vh2 });
     mesh.add_face({ vh2, vh3, vh0 });
 }
@@ -195,10 +200,10 @@ static int insert_vertices(TriMesh &mesh, std::unordered_map<Vh, Vh> &dups)
 static inline bool is_flippable(const TriMesh &mesh, const Hh &hh)
 {
     Hh hi = mesh.opposite_halfedge_handle(hh);
-    const auto u0 = get_xy(mesh, hh);
-    const auto u1 = get_xy(mesh, mesh.next_halfedge_handle(hh));
-    const auto u2 = get_xy(mesh, hi);
-    const auto u3 = get_xy(mesh, mesh.next_halfedge_handle(hi));
+    const auto u0 = get_xy(mesh, mesh.to_vertex_handle(hh));
+    const auto u1 = get_xy(mesh, mesh.to_vertex_handle(mesh.next_halfedge_handle(hh)));
+    const auto u2 = get_xy(mesh, mesh.to_vertex_handle(hi));
+    const auto u3 = get_xy(mesh, mesh.to_vertex_handle(mesh.next_halfedge_handle(hi)));
     return exact_convex(u0, u1, u2, u3);
 }
 
