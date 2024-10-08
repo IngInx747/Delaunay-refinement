@@ -146,6 +146,8 @@ static int insert_vertices(TriMesh &mesh, std::unordered_map<Vh, Vh> &dups)
 {
     auto delaunifier = make_delaunifier(mesh, EuclideanDelaunay {});
 
+    const int max_n_flip = (int)mesh.n_edges() * 50;
+
     int n_new_vertices {}; Fh fh_last {};
 
     for (Vh vh : mesh.vertices()) if (mesh.is_isolated(vh))
@@ -177,8 +179,7 @@ static int insert_vertices(TriMesh &mesh, std::unordered_map<Vh, Vh> &dups)
         { ehs[ne++] = mesh.edge_handle(mesh.next_halfedge_handle(hh)); }
 
         // maintain Delaunay
-        delaunifier.reset(); delaunifier.enqueue(ehs, ne);
-        int n_flip = delaunifier.flip_all(42);
+        delaunifier.enqueue(ehs, ne); int n_flip = delaunifier.flip_all(max_n_flip); delaunifier.clear();
 
         ++n_new_vertices;
     }
@@ -312,9 +313,11 @@ static Hh restore_constraint(TriMesh &mesh, Vh vh0, Vh vh1, std::vector<Hh> &hit
     return hh_rc;
 }
 
-static int make_delaunay(TriMesh &mesh, Eh eh)
+static int make_delaunay(TriMesh &mesh, const Eh &eh)
 {
     auto delaunifier = make_delaunifier(mesh, EuclideanDelaunay {});
+
+    const int max_n_flip = (int)mesh.n_edges() * 50;
 
     const Eh ehs[4] {
         mesh.edge_handle(mesh.next_halfedge_handle(mesh.halfedge_handle(eh, 0))),
@@ -323,8 +326,9 @@ static int make_delaunay(TriMesh &mesh, Eh eh)
         mesh.edge_handle(mesh.prev_halfedge_handle(mesh.halfedge_handle(eh, 1)))
     };
 
-    delaunifier.reset(); delaunifier.enqueue(ehs, 4);
-    return delaunifier.flip_all(42);
+    delaunifier.enqueue(ehs, 4); delaunifier.flip_all(max_n_flip); delaunifier.clear();
+
+    return 0;
 }
 
 static int restore_constraints(

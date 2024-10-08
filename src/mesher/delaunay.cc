@@ -32,7 +32,7 @@ int make_delaunay(TriMesh &mesh)
 
     const int max_n_flip = (int)mesh.n_edges() * 50;
 
-    delaunifier.reset(); delaunifier.enqueue_all(); int n_flip {};
+    delaunifier.enqueue_all(); int n_flip {};
 
 #if 1 // non-stop flipping until Delaunayhood is met
     n_flip = delaunifier.flip_all(max_n_flip);
@@ -46,6 +46,8 @@ int make_delaunay(TriMesh &mesh)
     {} // do something each encountering
 
 #endif
+
+    delaunifier.clear();
 
     return n_flip;
 }

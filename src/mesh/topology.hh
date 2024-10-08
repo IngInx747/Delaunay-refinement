@@ -105,7 +105,7 @@ public:
     : mesh(mesh), is_delaunay(is_delaunay) {}
 
     /// Clear all enqueued edges
-    void reset();
+    void clear();
 
     /// Enqueue all edges in the mesh
     void enqueue_all();
@@ -134,39 +134,45 @@ protected:
 
     void enqueue_adjacent(const Eh&);
 
+    inline bool is_enqueued(const Eh &eh) const
+    { return mesh.status(eh).tagged2(); }
+
+    inline void set_enqueued(const Eh &eh, const bool val)
+    { mesh.status(eh).set_tagged2(val); }
+
 protected:
 
     MeshT &mesh;
+
     const DelaunayT &is_delaunay;
 
     std::deque<Eh> frontier;
-    std::unordered_set<Eh> enqueued;
 };
 
 template <class MeshT, class DelaunayT>
-inline void Delaunifier<MeshT, DelaunayT>::reset()
+inline void Delaunifier<MeshT, DelaunayT>::clear()
 {
+    for (Eh eh : frontier) { set_enqueued(eh, false); }
     frontier.clear();
-    enqueued.clear();
 }
 
 template <class MeshT, class DelaunayT>
 inline void Delaunifier<MeshT, DelaunayT>::enqueue_all()
 {
-    for (Eh eh : mesh.edges()) if (!enqueued.count(eh))
+    for (Eh eh : mesh.edges()) if (!is_enqueued(eh))
     {
         frontier.push_back(eh);
-        enqueued.insert(eh);
+        set_enqueued(eh, true);
     }
 }
 
 template <class MeshT, class DelaunayT>
 inline void Delaunifier<MeshT, DelaunayT>::enqueue(const Eh ehs[], const int ne)
 {
-    for (int i = 0; i < ne; ++i) if (!enqueued.count(ehs[i]))
+    for (int i = 0; i < ne; ++i) if (!is_enqueued(ehs[i]))
     {
         frontier.push_back(ehs[i]);
-        enqueued.insert(ehs[i]);
+        set_enqueued(ehs[i], true);
     }
 }
 
@@ -175,11 +181,11 @@ template <class PredicateT>
 inline void Delaunifier<MeshT, DelaunayT>::enqueue(const PredicateT &predicate)
 {
     for (Eh eh : mesh.edges())
-    if (!enqueued.count(eh))
+    if (!is_enqueued(eh))
     if (predicate(mesh, eh))
     {
         frontier.push_back(eh);
-        enqueued.insert(eh);
+        set_enqueued(eh, true);
     }
 }
 
@@ -193,10 +199,10 @@ inline void Delaunifier<MeshT, DelaunayT>::enqueue_adjacent(const Eh &eh_base)
         mesh.edge_handle(mesh.prev_halfedge_handle(mesh.halfedge_handle(eh_base, 1)))
     };
 
-    for (const Eh &eh : ehs) if (!enqueued.count(eh))
+    for (const Eh &eh : ehs) if (!is_enqueued(eh))
     {
         frontier.push_back(eh);
-        enqueued.insert(eh);
+        set_enqueued(eh, true);
     }
 }
 
@@ -206,11 +212,11 @@ inline Eh Delaunifier<MeshT, DelaunayT>::next()
     if (frontier.empty()) return Eh {};
 
     Eh eh = frontier.front();
+    set_enqueued(eh, false);
     frontier.pop_front();
-    enqueued.erase(eh);
 
-    if (mesh.is_boundary(eh))  return eh;
-    if (is_delaunay(mesh, eh)) return eh;
+    if (mesh.is_boundary(eh)) return eh;
+    if (is_delaunay(mesh,eh)) return eh;
 
     OpenMesh::flip(mesh, eh);
     enqueue_adjacent(eh);
@@ -224,11 +230,11 @@ inline Eh Delaunifier<MeshT, DelaunayT>::flip()
     while (!frontier.empty())
     {
         Eh eh = frontier.front();
+        set_enqueued(eh, false);
         frontier.pop_front();
-        enqueued.erase(eh);
 
-        if (mesh.is_boundary(eh))  continue;
-        if (is_delaunay(mesh, eh)) continue;
+        if (mesh.is_boundary(eh)) continue;
+        if (is_delaunay(mesh,eh)) continue;
 
         OpenMesh::flip(mesh, eh);
         enqueue_adjacent(eh);
@@ -247,11 +253,11 @@ inline int Delaunifier<MeshT, DelaunayT>::flip_all(const int max_n_flip)
     for ( ; !frontier.empty() && n_flip < max_n_flip; )
     {
         Eh eh = frontier.front();
+        set_enqueued(eh, false);
         frontier.pop_front();
-        enqueued.erase(eh);
 
-        if (mesh.is_boundary(eh))  continue;
-        if (is_delaunay(mesh, eh)) continue;
+        if (mesh.is_boundary(eh)) continue;
+        if (is_delaunay(mesh,eh)) continue;
 
         OpenMesh::flip(mesh, eh);
         enqueue_adjacent(eh);

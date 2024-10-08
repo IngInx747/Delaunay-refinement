@@ -297,7 +297,7 @@ struct std::equal_to<Primitive>
             lhs.vh0 == rhs.vh0 &&
             lhs.vh1 == rhs.vh1 &&
             lhs.vh2 == rhs.vh2;
-        }
+    }
 };
 
 static inline bool is_triangle(const Primitive &primitive)
@@ -673,12 +673,11 @@ static int refine_segments(TriMesh &mesh, const Encroachment &encroached)
 
         // edges that are potentially non-Delaunay
         { Eh ehs[4]; int ne {}; for (Hh hh : mesh.voh_range(vo)) if (!mesh.is_boundary(hh))
-        { ehs[ne++] = mesh.edge_handle(mesh.next_halfedge_handle(hh)); }
-        delaunifier.reset(); delaunifier.enqueue(ehs, ne); }
+        { ehs[ne++] = mesh.edge_handle(mesh.next_halfedge_handle(hh)); } delaunifier.enqueue(ehs, ne); }
 
         // record affected edges while testing Delaunayhood
         for (Eh eh = delaunifier.next(); eh.is_valid(); eh = delaunifier.next())
-        { if (!is_exterior(mesh, eh)) eas.push_back(eh); }
+        { if (!is_exterior(mesh, eh)) eas.push_back(eh); } delaunifier.clear();
 
         // check encroachment of two new segments
         for (Eh eh : mesh.ve_range(vo)) { if (is_segment(mesh, eh)) eas.push_back(eh); }
@@ -759,11 +758,14 @@ static int refine_interior(TriMesh &mesh, const BadTriangle &bad_triangle, const
 
                 // edges that are potentially non-Delaunay
                 std::vector<Eh> ehs {}; for (Eh eh : mesh.ve_range(vc)) { ehs.push_back(eh); }
-                delaunifier.reset(); delaunifier.enqueue(ehs.data(), (int)ehs.size());
+                delaunifier.enqueue(ehs.data(), (int)ehs.size());
 
-                // record edges while maintaining Delaunayhood
+                // record affected edges while maintaining Delaunayhood
                 for (Eh eh = delaunifier.flip(); eh.is_valid(); eh = delaunifier.flip()) {
-                for (Hh hh : mesh.eh_range(eh)) if (!is_exterior(mesh, hh)) es.push_back(hh); }
+                for (Hh hh : mesh.eh_range(eh)) if (!is_exterior(mesh, hh)) es.push_back(hh); } delaunifier.clear();
+
+                // record affected triangles around the 1-ring of the merged vertex
+                for (Hh hh : mesh.voh_range(vc)) if (!is_exterior(mesh, hh)) es.push_back(hh);
             }
 
             // the segment was gone during last step (won't happen)
@@ -779,12 +781,11 @@ static int refine_interior(TriMesh &mesh, const BadTriangle &bad_triangle, const
 
             // edges that are potentially non-Delaunay
             { Eh ehs[4]; int ne {}; for (Hh hh : mesh.voh_range(vo)) if (!mesh.is_boundary(hh))
-            { ehs[ne++] = mesh.edge_handle(mesh.next_halfedge_handle(hh)); }
-            delaunifier.reset(); delaunifier.enqueue(ehs, ne); }
+            { ehs[ne++] = mesh.edge_handle(mesh.next_halfedge_handle(hh)); } delaunifier.enqueue(ehs, ne); }
 
             // record affected edges while maintaining Delaunayhood
             for (Eh eh = delaunifier.next(); eh.is_valid(); eh = delaunifier.next()) {
-            for (Hh hh : mesh.eh_range(eh)) if (!is_exterior(mesh, hh)) es.push_back(hh); }
+            for (Hh hh : mesh.eh_range(eh)) if (!is_exterior(mesh, hh)) es.push_back(hh); } delaunifier.clear();
 
             // record two new segments
             for (Eh eh : mesh.ve_range(vo)) { if (is_segment(mesh, eh))
@@ -850,12 +851,11 @@ static int refine_interior(TriMesh &mesh, const BadTriangle &bad_triangle, const
 
             // edges that are potentially non-Delaunay
             { Eh ehs[4]; int ne {}; for (Hh hh : mesh.voh_range(vo)) if (!mesh.is_boundary(hh))
-            { ehs[ne++] = mesh.edge_handle(mesh.next_halfedge_handle(hh)); }
-            delaunifier.reset(); delaunifier.enqueue(ehs, ne); }
+            { ehs[ne++] = mesh.edge_handle(mesh.next_halfedge_handle(hh)); } delaunifier.enqueue(ehs, ne); }
 
             // record affected edges while maintaining Delaunayhood
             for (Eh eh = delaunifier.next(); eh.is_valid(); eh = delaunifier.next()) {
-            for (Hh hh : mesh.eh_range(eh)) if (!is_exterior(mesh, hh)) es.push_back(hh); }
+            for (Hh hh : mesh.eh_range(eh)) if (!is_exterior(mesh, hh)) es.push_back(hh); } delaunifier.clear();
 
             // check encroachment over affected segments
             std::vector<Hh> hhs {}; for (Hh hh : es.vector()) {
@@ -876,11 +876,14 @@ static int refine_interior(TriMesh &mesh, const BadTriangle &bad_triangle, const
 
                 // edges that are potentially non-Delaunay
                 std::vector<Eh> ehs {}; for (Eh eh : mesh.ve_range(vc)) { ehs.push_back(eh); }
-                delaunifier.reset(); delaunifier.enqueue(ehs.data(), (int)ehs.size());
+                delaunifier.enqueue(ehs.data(), (int)ehs.size());
 
                 // record affected edges while maintaining Delaunayhood
                 for (Eh eh = delaunifier.flip(); eh.is_valid(); eh = delaunifier.flip()) {
-                for (Hh hh : mesh.eh_range(eh)) if (!is_exterior(mesh, hh)) es.push_back(hh); }
+                for (Hh hh : mesh.eh_range(eh)) if (!is_exterior(mesh, hh)) es.push_back(hh); } delaunifier.clear();
+
+                // record affected triangles around the 1-ring of the merged vertex
+                for (Hh hh : mesh.voh_range(vc)) if (!is_exterior(mesh, hh)) es.push_back(hh);
 
                 break;
             }
