@@ -273,66 +273,49 @@ static Fh search_primitive(const TriMesh &mesh, const Vec2 &u1, const Fh &fh0, H
 
 struct Primitive // either a triangle or a segment
 {
+    Fh fh;
+    Hh hh;
     Vh vh0, vh1, vh2;
 };
 
-template<>
-struct std::hash<Primitive>
-{
-    size_t operator()(const Primitive &primitive) const noexcept
-    {
-        size_t h0 = hash<Vh>{}(primitive.vh0);
-        size_t h1 = hash<Vh>{}(primitive.vh1);
-        size_t h2 = hash<Vh>{}(primitive.vh2);
-        return (((h2 << 1) ^ h1) << 1) ^ h0;
-    }
-};
-
-template<>
-struct std::equal_to<Primitive>
-{
-    bool operator()(const Primitive &lhs, const Primitive &rhs) const noexcept
-    {
-        return
-            lhs.vh0 == rhs.vh0 &&
-            lhs.vh1 == rhs.vh1 &&
-            lhs.vh2 == rhs.vh2;
-    }
-};
-
-static inline bool is_triangle(const Primitive &primitive)
-{
-    return primitive.vh2.is_valid();
-}
-
-static inline bool is_segment(const Primitive &primitive)
-{
-    return !primitive.vh2.is_valid();
-}
-
 static inline Fh get_triangle(const TriMesh &mesh, const Primitive &primitive)
 {
-    if (is_deleted(mesh, primitive.vh0) ||
+    if (is_deleted(mesh, primitive.fh)  ||
+        is_deleted(mesh, primitive.vh0) ||
         is_deleted(mesh, primitive.vh1) ||
         is_deleted(mesh, primitive.vh2))
         return Fh {};
 
-    Hh hh = mesh.find_halfedge(primitive.vh0, primitive.vh1);
-    if (!hh.is_valid()) return Fh {};
+    Hh hh = mesh.halfedge_handle(primitive.fh);
+    Hh hi = mesh.next_halfedge_handle(hh);
+    Hh hj = mesh.prev_halfedge_handle(hh);
+    Vh vh0 = mesh.to_vertex_handle(hh);
+    Vh vh1 = mesh.to_vertex_handle(hi);
+    Vh vh2 = mesh.to_vertex_handle(hj);
 
-    Vh vh2 = mesh.to_vertex_handle(mesh.next_halfedge_handle(hh));
-    if (vh2 != primitive.vh2) return Fh {};
+    if (vh0 != primitive.vh0 ||
+        vh1 != primitive.vh1 ||
+        vh2 != primitive.vh2)
+        return Fh {};
 
-    return mesh.face_handle(hh);
+    return primitive.fh;
 }
 
 static inline Hh get_segment(const TriMesh &mesh, const Primitive &primitive)
 {
-    if (is_deleted(mesh, primitive.vh0) ||
+    if (is_deleted(mesh, primitive.hh)  ||
+        is_deleted(mesh, primitive.vh0) ||
         is_deleted(mesh, primitive.vh1))
         return Hh {};
 
-    return mesh.find_halfedge(primitive.vh0, primitive.vh1);
+    Vh vh0 = mesh.from_vertex_handle(primitive.hh);
+    Vh vh1 = mesh.to_vertex_handle  (primitive.hh);
+
+    if (vh0 != primitive.vh0 ||
+        vh1 != primitive.vh1)
+        return Hh {};
+
+    return primitive.hh;
 }
 
 static inline Primitive make_primitive(const TriMesh &mesh, const Fh &fh)
@@ -343,14 +326,14 @@ static inline Primitive make_primitive(const TriMesh &mesh, const Fh &fh)
     Vh vh0 = mesh.to_vertex_handle(hh);
     Vh vh1 = mesh.to_vertex_handle(hi);
     Vh vh2 = mesh.to_vertex_handle(hj);
-    return { vh0, vh1, vh2 };
+    return { fh, Hh{}, vh0, vh1, vh2 };
 }
 
 static inline Primitive make_primitive(const TriMesh &mesh, const Hh &hh)
 {
     Vh vh0 = mesh.from_vertex_handle(hh);
     Vh vh1 = mesh.to_vertex_handle  (hh);
-    return { vh0, vh1, Vh {} };
+    return { Fh{}, hh, vh0, vh1, Vh {} };
 }
 
 ////////////////////////////////////////////////////////////////
@@ -443,12 +426,16 @@ static inline bool is_subtending_input_angle(const TriMesh &mesh, const Hh &hh)
 {
     OnSegment pred {};
 
+    // one or both ends of the base not lying on any segment
+    if (!is_segment(mesh, mesh.from_vertex_handle(hh)) ||
+        !is_segment(mesh, mesh.to_vertex_handle  (hh))) return false;
+
     // try getting two segments between which the base is
     Hh hh0 = next(mesh, pred, hh);
     Hh hh1 = prev(mesh, pred, hh);
 
     // one or both ends of the base not lying on any segment
-    if (!is_segment(mesh, hh0) || !is_segment(mesh, hh1)) return false;
+    //if (!is_segment(mesh, hh0) || !is_segment(mesh, hh1)) return false;
 
     Vh vh01 = segment_head(mesh, hh0);
     Vh vh00 = segment_tail(mesh, hh0);
@@ -740,8 +727,11 @@ static int refine_interior(TriMesh &mesh, const BadTriangle &bad_triangle, const
             // affected edges
             unique_vector<Hh> es {};
 
+            // the opposite segment
+            auto primitive_opposite = make_primitive(mesh, mesh.opposite_halfedge_handle(ho));
+
             // remove free vertices within the diametral circle of the segment before splitting
-            for (const auto &segment : { primitive, Primitive { primitive.vh1, primitive.vh0, Vh {} } }) while (true)
+            for (const auto &segment : { primitive, primitive_opposite }) while (true)
             {
                 Hh hh = get_segment(mesh, segment);
                 if (!hh.is_valid()) break;
