@@ -437,10 +437,10 @@ static inline bool is_subtending_input_angle(const TriMesh &mesh, const Hh &hh)
     // one or both ends of the base not lying on any segment
     //if (!is_segment(mesh, hh0) || !is_segment(mesh, hh1)) return false;
 
-    Vh vh01 = segment_head(mesh, hh0);
-    Vh vh00 = segment_tail(mesh, hh0);
-    Vh vh11 = segment_head(mesh, hh1);
-    Vh vh10 = segment_tail(mesh, hh1);
+    Vh vh00 = segment_head(mesh, hh0);
+    Vh vh01 = segment_tail(mesh, hh0);
+    Vh vh10 = segment_head(mesh, hh1);
+    Vh vh11 = segment_tail(mesh, hh1);
     Vh vhc {}; // the common end
 
     if (vh01 == vh10) vhc = vh01;
