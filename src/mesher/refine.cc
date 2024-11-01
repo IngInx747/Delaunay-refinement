@@ -687,7 +687,7 @@ static int refine_segments(TriMesh &mesh, const Encroachment &encroached)
 {
     int n_new_vertices {};
 
-    auto delaunifier = make_delaunifier(mesh, EuclideanDelaunay {});
+    auto delaunifier = make_flipper(mesh, EuclideanDelaunay {});
 
     // Before enqueueing encroached segments, free vertices in
     // the diametral circle of the segment should be deleted.
@@ -762,7 +762,7 @@ static int refine_interior(TriMesh &mesh, const BadTriangle &bad_triangle, const
 
     int n_new_vertices {};
 
-    auto delaunifier = make_delaunifier(mesh, EuclideanDelaunay {});
+    auto delaunifier = make_flipper(mesh, EuclideanDelaunay {});
 
     // segments to split
     std::deque<Primitive> segments {};

@@ -97,11 +97,11 @@ inline void flip(TriConnectivity &mesh, const EdgeHandle &eh)
 } // namespace OpenMesh
 
 template <class MeshT, class DelaunayT>
-class Delaunifier
+class Flipper
 {
 public:
 
-    Delaunifier(MeshT &mesh, const DelaunayT &is_delaunay)
+    Flipper(MeshT &mesh, const DelaunayT &is_delaunay)
     : mesh(mesh), is_delaunay(is_delaunay) {}
 
     /// Clear all enqueued edges
@@ -150,14 +150,14 @@ protected:
 };
 
 template <class MeshT, class DelaunayT>
-inline void Delaunifier<MeshT, DelaunayT>::clear()
+inline void Flipper<MeshT, DelaunayT>::clear()
 {
     for (Eh eh : frontier) { set_enqueued(eh, false); }
     frontier.clear();
 }
 
 template <class MeshT, class DelaunayT>
-inline void Delaunifier<MeshT, DelaunayT>::enqueue_all()
+inline void Flipper<MeshT, DelaunayT>::enqueue_all()
 {
     for (Eh eh : mesh.edges()) if (!is_enqueued(eh))
     {
@@ -167,7 +167,7 @@ inline void Delaunifier<MeshT, DelaunayT>::enqueue_all()
 }
 
 template <class MeshT, class DelaunayT>
-inline void Delaunifier<MeshT, DelaunayT>::enqueue(const Eh ehs[], const int ne)
+inline void Flipper<MeshT, DelaunayT>::enqueue(const Eh ehs[], const int ne)
 {
     for (int i = 0; i < ne; ++i) if (!is_enqueued(ehs[i]))
     {
@@ -178,7 +178,7 @@ inline void Delaunifier<MeshT, DelaunayT>::enqueue(const Eh ehs[], const int ne)
 
 template <class MeshT, class DelaunayT>
 template <class PredicateT>
-inline void Delaunifier<MeshT, DelaunayT>::enqueue(const PredicateT &predicate)
+inline void Flipper<MeshT, DelaunayT>::enqueue(const PredicateT &predicate)
 {
     for (Eh eh : mesh.edges())
     if (!is_enqueued(eh))
@@ -190,7 +190,7 @@ inline void Delaunifier<MeshT, DelaunayT>::enqueue(const PredicateT &predicate)
 }
 
 template <class MeshT, class DelaunayT>
-inline void Delaunifier<MeshT, DelaunayT>::enqueue_adjacent(const Eh &eh_base)
+inline void Flipper<MeshT, DelaunayT>::enqueue_adjacent(const Eh &eh_base)
 {
     const Eh ehs[4] {
         mesh.edge_handle(mesh.next_halfedge_handle(mesh.halfedge_handle(eh_base, 0))),
@@ -207,7 +207,7 @@ inline void Delaunifier<MeshT, DelaunayT>::enqueue_adjacent(const Eh &eh_base)
 }
 
 template <class MeshT, class DelaunayT>
-inline Eh Delaunifier<MeshT, DelaunayT>::next()
+inline Eh Flipper<MeshT, DelaunayT>::next()
 {
     if (frontier.empty()) return Eh {};
 
@@ -225,7 +225,7 @@ inline Eh Delaunifier<MeshT, DelaunayT>::next()
 }
 
 template <class MeshT, class DelaunayT>
-inline Eh Delaunifier<MeshT, DelaunayT>::flip()
+inline Eh Flipper<MeshT, DelaunayT>::flip()
 {
     while (!frontier.empty())
     {
@@ -246,7 +246,7 @@ inline Eh Delaunifier<MeshT, DelaunayT>::flip()
 }
 
 template <class MeshT, class DelaunayT>
-inline int Delaunifier<MeshT, DelaunayT>::flip_all(const int max_n_flip)
+inline int Flipper<MeshT, DelaunayT>::flip_all(const int max_n_flip)
 {
     int n_flip {};
 
@@ -268,8 +268,8 @@ inline int Delaunifier<MeshT, DelaunayT>::flip_all(const int max_n_flip)
 }
 
 template <class MeshT, class DelaunayT>
-inline Delaunifier<MeshT, DelaunayT> make_delaunifier(MeshT &mesh, const DelaunayT &is_delaunay)
-{ return Delaunifier<MeshT, DelaunayT>(mesh, is_delaunay); }
+inline Flipper<MeshT, DelaunayT> make_flipper(MeshT &mesh, const DelaunayT &is_delaunay)
+{ return Flipper<MeshT, DelaunayT>(mesh, is_delaunay); }
 
 ////////////////////////////////////////////////////////////////
 /// Utilities

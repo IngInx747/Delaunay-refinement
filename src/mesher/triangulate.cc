@@ -144,7 +144,7 @@ static inline void set_domain(TriMesh &mesh)
 
 static int insert_vertices(TriMesh &mesh, std::unordered_map<Vh, Vh> &dups)
 {
-    auto delaunifier = make_delaunifier(mesh, EuclideanDelaunay {});
+    auto delaunifier = make_flipper(mesh, EuclideanDelaunay {});
 
     const int max_n_flip = (int)mesh.n_edges() * 50;
 
@@ -315,7 +315,7 @@ static Hh restore_constraint(TriMesh &mesh, Vh vh0, Vh vh1, std::vector<Hh> &hit
 
 static int make_delaunay(TriMesh &mesh, const Eh &eh)
 {
-    auto delaunifier = make_delaunifier(mesh, EuclideanDelaunay {});
+    auto delaunifier = make_flipper(mesh, EuclideanDelaunay {});
 
     const int max_n_flip = (int)mesh.n_edges() * 50;
 

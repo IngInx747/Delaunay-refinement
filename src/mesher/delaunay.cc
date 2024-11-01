@@ -28,7 +28,7 @@ struct EuclideanDelaunay
 
 int make_delaunay(TriMesh &mesh)
 {
-    auto delaunifier = make_delaunifier(mesh, EuclideanDelaunay {});
+    auto delaunifier = make_flipper(mesh, EuclideanDelaunay {});
 
     const int max_n_flip = (int)mesh.n_edges() * 50;
 
