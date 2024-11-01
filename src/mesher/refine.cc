@@ -39,43 +39,52 @@ static inline bool is_segment(const TriMesh &mesh, const Hh &hh)
     return is_sharp(mesh, mesh.edge_handle(hh));
 }
 
-static inline bool is_segment(const TriMesh &mesh, const Vh &vh)
+static inline bool is_on_segment(const TriMesh &mesh, const Vh &vh)
 {
     for (Eh eh : mesh.ve_range(vh)) if (is_segment(mesh, eh)) return true;
-    return false; // is the vertex on a segment
+    return false; // check if the vertex lies on a segment
+}
+
+static inline bool is_segment(const TriMesh &mesh, const Vh &vh)
+{
+    return is_sharp(mesh, vh) || is_on_segment(mesh, vh);
+}
+
+static inline void set_segment(TriMesh &mesh, const Vh &vh, const bool value)
+{
+    set_sharp(mesh, vh, value);
 }
 
 static inline bool is_endian(const TriMesh &mesh, const Vh &vh)
 {
-    return is_sharp(mesh, vh); // is the vertex from an original segment
+    return is_marked(mesh, vh); // is the vertex from an original segment
 }
 
-struct OnSegment
+static inline void set_endian(TriMesh &mesh, const Vh &vh, const bool value)
 {
-    inline bool operator()(const TriMesh &mesh, const Hh &hh) const
-    { return is_segment(mesh, hh); }
-};
-
-static inline Vh segment_head(const TriMesh &mesh, const Hh &hh)
-{
-    Hh hi = hh; OnSegment pred {};
-    while (!is_endian(mesh, mesh.from_vertex_handle(hi)))
-    { if ((hi = prev(mesh, pred, hi)) == hh) break; }
-    return mesh.from_vertex_handle(hi);
+    set_marked(mesh, vh, value);
 }
 
-static inline Vh segment_tail(const TriMesh &mesh, const Hh &hh)
+static inline bool is_acute(const TriMesh &mesh, const Fh &fh)
 {
-    Hh hi = hh; OnSegment pred {};
-    while (!is_endian(mesh, mesh.to_vertex_handle(hi)))
-    { if ((hi = next(mesh, pred, hi)) == hh) break; }
-    return mesh.to_vertex_handle(hi);
+    return is_marked(mesh, fh); // is the face from an acute input triangle
 }
 
-static void mark_endians(TriMesh &mesh)
+static inline void set_acute(TriMesh &mesh, const Fh &fh, const bool value)
 {
-    for (Hh hh : mesh.halfedges()) if (is_sharp(mesh, mesh.edge_handle(hh)))
-    { set_sharp(mesh, mesh.to_vertex_handle(hh), true); }
+    set_marked(mesh, fh, value);
+}
+
+static void mark_segment_vertices(TriMesh &mesh)
+{
+    for (Hh hh : mesh.halfedges()) if (is_segment(mesh, hh))
+    { set_segment(mesh, mesh.to_vertex_handle(hh), true); }
+}
+
+static void mark_endian_vertices(TriMesh &mesh)
+{
+    for (Hh hh : mesh.halfedges()) if (is_segment(mesh, hh))
+    { set_endian(mesh, mesh.to_vertex_handle(hh), true); }
 }
 
 ////////////////////////////////////////////////////////////////
@@ -168,6 +177,9 @@ static inline void split(TriMesh &mesh, Hh hh, Vh vh)
     Vh vh1 = mesh.to_vertex_handle  (hh);
 
     mesh.split_edge_copy(mesh.edge_handle(hh), vh);
+
+    // mark as on-segment
+    set_segment(mesh, vh, true);
 
     // OpenMesh copies property to all 4 new edges even 2 of
     // which are not sharp. Unsharp the 2 edges accordingly.
@@ -422,6 +434,28 @@ static inline double the_shortest_len2(const TriMesh &mesh, const Fh &fh)
     return (d1<d0) ? (d1<d2 ? d1 : d2) : (d0<d2 ? d0 : d2);
 }
 
+struct OnSegment
+{
+    inline bool operator()(const TriMesh &mesh, const Hh &hh) const
+    { return is_segment(mesh, hh); }
+};
+
+static inline Vh segment_head(const TriMesh &mesh, const Hh &hh)
+{
+    Hh hi = hh; OnSegment pred {};
+    while (!is_endian(mesh, mesh.from_vertex_handle(hi)))
+    { if ((hi = prev(mesh, pred, hi)) == hh) break; }
+    return mesh.from_vertex_handle(hi);
+}
+
+static inline Vh segment_tail(const TriMesh &mesh, const Hh &hh)
+{
+    Hh hi = hh; OnSegment pred {};
+    while (!is_endian(mesh, mesh.to_vertex_handle(hi)))
+    { if ((hi = next(mesh, pred, hi)) == hh) break; }
+    return mesh.to_vertex_handle(hi);
+}
+
 static inline bool is_subtending_input_angle(const TriMesh &mesh, const Hh &hh)
 {
     OnSegment pred {};
@@ -429,6 +463,10 @@ static inline bool is_subtending_input_angle(const TriMesh &mesh, const Hh &hh)
     // one or both ends of the base not lying on any segment
     if (!is_segment(mesh, mesh.from_vertex_handle(hh)) ||
         !is_segment(mesh, mesh.to_vertex_handle  (hh))) return false;
+
+    // Check the triangle is originated from an acute input and if not,
+    // the two segments are separate and not worthy of further testing.
+    if (!is_acute(mesh, mesh.face_handle(hh))) return false;
 
     // try getting two segments between which the base is
     Hh hh0 = next(mesh, pred, hh);
@@ -547,6 +585,30 @@ struct BadTriangle
     const double max_len2; // upper bound of edge length
     const double max_twoa; // upper bound of triangle area
 };
+
+static void mark_acute_triangles(TriMesh &mesh, const double max_cos2)
+{
+    //      0      //
+    //  2  / \  1  //
+    //    /   \    //
+    //   1-----2   //
+    //      0      //
+
+    for (Fh fh : mesh.faces()) for (Hh hh0 : mesh.fh_range(fh))
+    {
+        Hh hh1 = mesh.next_halfedge_handle(hh0);
+        Hh hh2 = mesh.prev_halfedge_handle(hh0);
+        const auto u0 = get_xy(mesh, mesh.to_vertex_handle(hh1));
+        const auto u1 = get_xy(mesh, mesh.to_vertex_handle(hh2));
+        const auto u2 = get_xy(mesh, mesh.to_vertex_handle(hh0));
+        const double d12 = dot(u1 - u0, u2 - u0);
+        const double dd1 = dot(u2 - u0, u2 - u0);
+        const double dd2 = dot(u1 - u0, u1 - u0);
+        const double cs2 = (d12*d12) / (dd1*dd2);
+        if (d12 > 0 && cs2 > max_cos2 && is_segment(mesh, hh1) && is_segment(mesh, hh2))
+        { set_marked(mesh, fh, true); }
+    }
+}
 
 ////////////////////////////////////////////////////////////////
 /// Refinement
@@ -903,9 +965,30 @@ int refine(TriMesh &mesh, const double min_angle, const double max_length, const
 
     BadTriangle bad_triangle(min_angle, max_length, max_area);
 
-    mark_endians(mesh);
+    // Segment vertices will generate during refinement
+    // as edge splitting and will be marked properly.
+    mark_segment_vertices(mesh);
+
+    // Endian vertices won't change or generate during refinement
+    // which are used for checking an acute input angle.
+    mark_endian_vertices(mesh);
+
+    // Instead of tracing endian vertices brutely, one can mark
+    // any triangle subtending a bad input angle and ignore the
+    // unmarked ones at endian tracing.
+    // It is a heuristic way to tell if two segments are separate
+    // or forming an acute angle in the input.
+    // The acute mark will spread during refinement. Some triangles
+    // are left marked but not subtending anymore (doesn't matter).
+    mark_acute_triangles(mesh, bad_triangle.max_cos2);
 
     refine_segments(mesh, encroached);
+
+    // In some cases, acute angles are subtended by two or more
+    // triangles and thus cannot be detected properly. They do
+    // not necessarily appear after CDT but will definitely do
+    // after segment refinement.
+    mark_acute_triangles(mesh, bad_triangle.max_cos2);
 
     refine_interior(mesh, bad_triangle, encroached);
 

@@ -153,3 +153,10 @@ int dump_faces(const TriMesh &mesh, const std::vector<Fh> &faces, const char *lo
         nullptr, 0,
         get_path(mesh).append(local_name).c_str());
 }
+
+int dump_marked_faces(const TriMesh &mesh, const char *local_name)
+{
+    std::vector<Fh> fhs {};
+    for (Fh fh : mesh.faces()) if (is_marked(mesh, fh)) fhs.push_back(fh);
+    return dump_faces(mesh, fhs, local_name);
+}
