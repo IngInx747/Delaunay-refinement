@@ -51,18 +51,6 @@ inline bool is_sync(const MeshT &mesh, const Hh &hh)
     return mesh.halfedge_handle(mesh.edge_handle(hh), 0) == hh;
 }
 
-template <class MeshT>
-inline bool exist(const MeshT &mesh, const Hh &hh)
-{
-    return mesh.find_halfedge(mesh.from_vertex_handle(hh), mesh.to_vertex_handle(hh)).is_valid();
-}
-
-template <class MeshT>
-inline bool exist(const MeshT &mesh, const Eh &eh)
-{
-    return mesh.find_halfedge(mesh.vertex_handle(eh, 0), mesh.vertex_handle(eh, 1)).is_valid();
-}
-
 ////////////////////////////////////////////////////////////////
 /// Navigate
 ////////////////////////////////////////////////////////////////

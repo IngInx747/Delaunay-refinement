@@ -255,25 +255,20 @@ static Fh search_primitive(const TriMesh &mesh, const Vec2 &u1, const Fh &fh0, H
             { hh = pp.halfedge_handle(); break; }
         }
 
-        Fh fh {}; // check if the target is reached
-
+        // check if the target is reached
         if (pp.status() == PLOW_STATUS::EDGE)
         {
-            fh = mesh.opposite_face_handle(pp.halfedge_handle());
+            Fh fh = mesh.opposite_face_handle(pp.halfedge_handle());
+            if (fh.is_valid() && is_inside(mesh, fh, u1)) return fh;
         }
         else if (pp.status() == PLOW_STATUS::VERT)
         {
-            fh = mesh.face_handle(mesh.halfedge_handle(pp.vertex_handle()));
-        }
-        if (fh.is_valid() && is_inside(mesh, fh, u1))
-        {
-            return fh;
+            for (Fh fh : mesh.vf_range(pp.vertex_handle()))
+            if (fh.is_valid() && is_inside(mesh, fh, u1)) return fh;
         }
 
-        if (pp.status() == PLOW_STATUS::MISS) // searching lost in vain, for some reasons
-        {
-            break;
-        }
+        // searching lost in vain, for some reasons
+        if (pp.status() == PLOW_STATUS::MISS) break;
     }
 
     return Fh {};
