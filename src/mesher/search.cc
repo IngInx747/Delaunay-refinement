@@ -76,7 +76,7 @@ Fh search_triangle_brute_force(const TriMesh &mesh, const Vec2 &u)
     return Fh {};
 }
 
-Fh search_triangle_local_way(const TriMesh &mesh, const Vec2 &u, const Fh &fho)
+Fh search_triangle_zigzag(const TriMesh &mesh, const Vec2 &u, const Fh &fho)
 {
     const int nf = (int)mesh.n_faces();
     Fh fh = fho; Hh hh {};
@@ -98,6 +98,7 @@ Fh search_triangle_local_way(const TriMesh &mesh, const Vec2 &u, const Fh &fho)
     return fh;
 }
 
+#if 0
 Fh search_triangle_guided_bfs(const TriMesh &mesh, const Vec2 &u, const Fh &fho)
 {
     std::queue<Fh> frontier {};
@@ -109,7 +110,7 @@ Fh search_triangle_guided_bfs(const TriMesh &mesh, const Vec2 &u, const Fh &fho)
     while (!frontier.empty())
     {
         auto ft = frontier.front(); frontier.pop();
-        auto fh = search_triangle_local_way(mesh, u, ft);
+        auto fh = search_triangle_zigzag(mesh, u, ft);
         if (is_inside(mesh, fh, u)) return fh;
 
         // Do not start with a visited face, with previous one instead
@@ -130,6 +131,7 @@ Fh search_triangle_guided_bfs(const TriMesh &mesh, const Vec2 &u, const Fh &fho)
 
     return Fh {};
 }
+#endif
 
 ////////////////////////////////////////////////////////////////
 /// Fuzzy search
@@ -381,6 +383,16 @@ void init(PrimitivePlow &pp, const Fh &fh0, const Vec2 &u1)
     pp.set_u1(u1);
 }
 
+void init(PrimitivePlow &pp, const Vh &vh0, const Vec2 &u1)
+{
+    const auto &mesh = pp.mesh();
+    const auto u0 = get_xy(mesh, vh0);
+    pp.set_status(PLOW_STATUS::VERT);
+    pp.set_vertex_handle(vh0);
+    pp.set_u0(u0);
+    pp.set_u1(u1);
+}
+
 void init(PrimitivePlow &pp, const Vh &vh0, const Vh &vh1)
 {
     const auto &mesh = pp.mesh();
@@ -390,4 +402,35 @@ void init(PrimitivePlow &pp, const Vh &vh0, const Vh &vh1)
     pp.set_vertex_handle(vh0);
     pp.set_u0(u0);
     pp.set_u1(u1);
+}
+
+Fh search_triangle_linear(const TriMesh &mesh, const Vec2 &u, const Fh &fh0)
+{
+    if (is_inside(mesh, fh0, u)) return fh0;
+
+    PrimitivePlow pp(mesh);
+
+    init(pp, fh0, u); // setup the plow
+
+    const int max_n_iter = (int)mesh.n_edges(); int n_iter {};
+
+    for (pp.next(); n_iter < max_n_iter; pp.next(), ++n_iter)
+    {
+        // check if the target is reached
+        if (pp.status() == PLOW_STATUS::EDGE)
+        {
+            Fh fh = mesh.opposite_face_handle(pp.halfedge_handle());
+            if (fh.is_valid() && is_inside(mesh, fh, u)) return fh;
+        }
+        else if (pp.status() == PLOW_STATUS::VERT)
+        {
+            for (Fh fh : mesh.vf_range(pp.vertex_handle()))
+            if (fh.is_valid() && is_inside(mesh, fh, u)) return fh;
+        }
+
+        // searching lost in vain, for some reasons
+        if (pp.status() == PLOW_STATUS::MISS) break;
+    }
+
+    return Fh {};
 }

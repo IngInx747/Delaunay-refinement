@@ -80,7 +80,8 @@ static inline Fh search_triangle(const TriMesh &mesh, const Vec2 &u, Fh fh = Fh 
 {
     if (!fh.is_valid()) for (Fh fi : mesh.faces()) { fh = fi; break; }
 
-    return search_triangle_local_way(mesh, u, fh);
+    //return search_triangle_zigzag(mesh, u, fh);
+    return search_triangle_linear(mesh, u, fh);
 }
 
 ////////////////////////////////////////////////////////////////
@@ -146,8 +147,6 @@ static int insert_vertices(TriMesh &mesh, std::unordered_map<Vh, Vh> &dups)
 {
     auto delaunifier = make_flipper(mesh, EuclideanDelaunay {});
 
-    const int max_n_flip = (int)mesh.n_edges() * 50;
-
     int n_new_vertices {}; Fh fh_last {};
 
     for (Vh vh : mesh.vertices()) if (mesh.is_isolated(vh))
@@ -179,7 +178,8 @@ static int insert_vertices(TriMesh &mesh, std::unordered_map<Vh, Vh> &dups)
         { ehs[ne++] = mesh.edge_handle(mesh.next_halfedge_handle(hh)); }
 
         // maintain Delaunay
-        delaunifier.enqueue(ehs, ne); int n_flip = delaunifier.flip_all(max_n_flip); delaunifier.clear();
+        const int max_n_flip = (int)mesh.n_edges() * 50;
+        delaunifier.enqueue(ehs, ne); delaunifier.flip_all(max_n_flip); delaunifier.clear();
 
         ++n_new_vertices;
     }
