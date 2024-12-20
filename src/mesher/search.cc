@@ -425,7 +425,7 @@ Fh search_triangle_linear(const TriMesh &mesh, const Vec2 &u, const Fh &fh0)
         else if (rt.status() == RAY_STATUS::VERT)
         {
             for (Fh fh : mesh.vf_range(rt.vertex_handle()))
-            if (fh.is_valid() && is_inside(mesh, fh, u)) return fh;
+            if (!is_hidden(mesh, fh) && is_inside(mesh, fh, u)) return fh;
         }
 
         // searching lost in vain, for some reasons
