@@ -229,27 +229,27 @@ static inline bool is_intersecting(const TriMesh &mesh, const Vh &vh0, const Vh 
 
 static int get_intersections(const TriMesh &mesh, const Vh &vh0, const Vh &vh1, std::vector<Hh> &hhs, std::vector<Vh> &vhs)
 {
-    PrimitivePlow pp(mesh);
+    RayTracer rt(mesh);
 
-    init(pp, vh0, vh1); // setup the plow
+    init(rt, vh0, vh1); // setup the plow
 
     const int max_n_iter = (int)mesh.n_edges(); int n_iter {};
 
-    for (pp.next(); n_iter < max_n_iter; pp.next(), ++n_iter)
+    for (rt.next(); n_iter < max_n_iter; rt.next(), ++n_iter)
     {
-        if (pp.status() == PLOW_STATUS::VERT) // check if v1 is reached
+        if (rt.status() == RAY_STATUS::VERT) // check if v1 is reached
         {
-            if (pp.vertex_handle() == vh1) return 0;
+            if (rt.vertex_handle() == vh1) return 0;
         }
-        if (pp.status() == PLOW_STATUS::EDGE) // record intersecting edges
+        if (rt.status() == RAY_STATUS::EDGE) // record intersecting edges
         {
-            hhs.push_back(pp.halfedge_handle());
+            hhs.push_back(rt.halfedge_handle());
         }
-        else if (pp.status() == PLOW_STATUS::VERT) // record overlapping vertices
+        else if (rt.status() == RAY_STATUS::VERT) // record overlapping vertices
         {
-            vhs.push_back(pp.vertex_handle()); // no vertex can lie on (u0,u1) other than v0 and v1
+            vhs.push_back(rt.vertex_handle()); // no vertex can lie on (u0,u1) other than v0 and v1
         }
-        else if (pp.status() == PLOW_STATUS::MISS) // searching lost in vain, for some reasons
+        else if (rt.status() == RAY_STATUS::MISS) // searching lost in vain, for some reasons
         {
             break;
         }

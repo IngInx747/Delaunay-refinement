@@ -189,10 +189,10 @@ Fh fuzzy_search_triangle_boundary(const TriMesh &mesh, const Vec2 &u, const doub
 }
 
 ////////////////////////////////////////////////////////////////
-/// Path search
+/// Ray tracer
 ////////////////////////////////////////////////////////////////
 
-static inline PLOW_STATUS intersection_info(const TriMesh &mesh, const Vec2 &u0, const Vec2 &u1, const Hh &hh)
+static inline RAY_STATUS intersection_info(const TriMesh &mesh, const Vec2 &u0, const Vec2 &u1, const Hh &hh)
 {
     const auto v0 = get_xy(mesh, mesh.from_vertex_handle(hh));
     const auto v1 = get_xy(mesh, mesh.to_vertex_handle  (hh));
@@ -204,15 +204,15 @@ static inline PLOW_STATUS intersection_info(const TriMesh &mesh, const Vec2 &u0,
     const int rv1 = ii[3];
 
     return
-        (ru0 * ru1 < 0) && (rv0 * rv1 < 0)        ? PLOW_STATUS::EDGE : // intersecting exclusively
-        (ru0 * ru1 < 0) && (rv1 == 0 && rv0 != 0) ? PLOW_STATUS::VERT : // v1 on (u0,u1), v0 is not
-        (ru0 != 0 && ru1 == 0) && (rv1 == 0)      ? PLOW_STATUS::VERT : // v1 overlaps u1
-        PLOW_STATUS::MISS; // no intersection, colinear, v0 lying on (u0,u1), and other cases
+        (ru0 * ru1 < 0) && (rv0 * rv1 < 0)        ? RAY_STATUS::EDGE : // intersecting exclusively
+        (ru0 * ru1 < 0) && (rv1 == 0 && rv0 != 0) ? RAY_STATUS::VERT : // v1 on (u0,u1), v0 is not
+        (ru0 != 0 && ru1 == 0) && (rv1 == 0)      ? RAY_STATUS::VERT : // v1 overlaps u1
+        RAY_STATUS::MISS; // no intersection, colinear, v0 lying on (u0,u1), and other cases
 }
 
-static inline PLOW_STATUS next_primitive(const TriMesh &mesh, const Vec2 &u0, const Vec2 &u1, Hh hho, Hh &hhc, Vh &vhc)
+static inline RAY_STATUS next_primitive(const TriMesh &mesh, const Vec2 &u0, const Vec2 &u1, Hh hho, Hh &hhc, Vh &vhc)
 {
-    auto res { PLOW_STATUS::MISS };
+    auto res { RAY_STATUS::MISS };
 
     Hh hh0 = mesh.prev_halfedge_handle(hho);
     Hh hh1 = mesh.next_halfedge_handle(hho);
@@ -220,14 +220,14 @@ static inline PLOW_STATUS next_primitive(const TriMesh &mesh, const Vec2 &u0, co
     for (Hh hh : { hh0, hh1 })
     {
         const auto ii = intersection_info(mesh, u0, u1, hh);
-        if (ii == PLOW_STATUS::MISS) continue;
+        if (ii == RAY_STATUS::MISS) continue;
         res = ii;
 
-        if (ii == PLOW_STATUS::EDGE)
+        if (ii == RAY_STATUS::EDGE)
         {
             hhc = hh;
         }
-        else if (ii == PLOW_STATUS::VERT)
+        else if (ii == RAY_STATUS::VERT)
         {
             vhc = mesh.to_vertex_handle(hh);
         }
@@ -236,9 +236,9 @@ static inline PLOW_STATUS next_primitive(const TriMesh &mesh, const Vec2 &u0, co
     return res;
 }
 
-static inline PLOW_STATUS next_primitive(const TriMesh &mesh, const Vec2 &u0, const Vec2 &u1, Vh vho, Hh &hhc, Vh &vhc)
+static inline RAY_STATUS next_primitive(const TriMesh &mesh, const Vec2 &u0, const Vec2 &u1, Vh vho, Hh &hhc, Vh &vhc)
 {
-    auto res { PLOW_STATUS::MISS };
+    auto res { RAY_STATUS::MISS };
 
     const auto uo = get_xy(mesh, vho);
 
@@ -255,14 +255,14 @@ static inline PLOW_STATUS next_primitive(const TriMesh &mesh, const Vec2 &u0, co
 
         // use (uo,u1) for intersecting test instead of (u0,u1)
         const auto ii = intersection_info(mesh, uo, u1, hh);
-        if (ii == PLOW_STATUS::MISS) continue;
+        if (ii == RAY_STATUS::MISS) continue;
         res = ii;
 
-        if (ii == PLOW_STATUS::EDGE)
+        if (ii == RAY_STATUS::EDGE)
         {
             hhc = hh;
         }
-        else if (ii == PLOW_STATUS::VERT)
+        else if (ii == RAY_STATUS::VERT)
         {
             vhc = mesh.to_vertex_handle(hh);
         }
@@ -271,17 +271,17 @@ static inline PLOW_STATUS next_primitive(const TriMesh &mesh, const Vec2 &u0, co
     return res;
 }
 
-void PrimitivePlow::next()
+void RayTracer::next()
 {
-    if (st_ == PLOW_STATUS::EDGE)
+    if (st_ == RAY_STATUS::EDGE)
     {
         hh_ = m_.opposite_halfedge_handle(hh_);
     }
-    if (st_ == PLOW_STATUS::EDGE)
+    if (st_ == RAY_STATUS::EDGE)
     {
         st_ = next_primitive(m_, u0_, u1_, hh_, hh_, vh_);
     }
-    else if (st_ == PLOW_STATUS::VERT)
+    else if (st_ == RAY_STATUS::VERT)
     {
         st_ = next_primitive(m_, u0_, u1_, vh_, hh_, vh_);
     }
@@ -307,22 +307,22 @@ static inline TRI_LOC locate(const TriMesh &mesh, const Fh &fh, const Vec2 &u, H
     return loc;
 }
 
-static inline PLOW_STATUS first_primitive(const TriMesh &mesh, const Vec2 &u0, const Vec2 &u1, const Fh &fho, Hh &hhc, Vh &vhc)
+static inline RAY_STATUS first_primitive(const TriMesh &mesh, const Vec2 &u0, const Vec2 &u1, const Fh &fho, Hh &hhc, Vh &vhc)
 {
     Hh hho {}; const auto loc = locate(mesh, fho, u0, hho);
 
     if (loc == TRI_LOC::IN) // u0 is exclusively in the triangle
     {
         for (Hh hh : mesh.fh_range(fho))
-        if (intersection_info(mesh, u0, u1, hh) == PLOW_STATUS::MISS)
+        if (intersection_info(mesh, u0, u1, hh) == RAY_STATUS::MISS)
         { hhc = hh; break; } // then start with any non-intersecting edge
-        return PLOW_STATUS::EDGE;
+        return RAY_STATUS::EDGE;
     }
 
     if ((int)loc & (int)TRI_LOC::VS) // u0 overlaps any vertex of the triangle
     {
         vhc = mesh.to_vertex_handle(hho);
-        return PLOW_STATUS::VERT;
+        return RAY_STATUS::VERT;
     }
 
     if ((int)loc & (int)TRI_LOC::ES) // u0 lies on any edge of the triangle
@@ -348,88 +348,88 @@ static inline PLOW_STATUS first_primitive(const TriMesh &mesh, const Vec2 &u0, c
             hhc = mesh.opposite_halfedge_handle(hho); // even work in boundary case!
         }
 
-        return PLOW_STATUS::EDGE;
+        return RAY_STATUS::EDGE;
     }
 
-    return PLOW_STATUS::MISS;
+    return RAY_STATUS::MISS;
 }
 
-void init(PrimitivePlow &pp, const Fh &fh0, const Vec2 &u0, const Vec2 &u1)
+void init(RayTracer &rt, const Fh &fh0, const Vec2 &u0, const Vec2 &u1)
 {
     Hh hhc {}; Vh vhc {};
-    const auto &mesh = pp.mesh();
+    const auto &mesh = rt.mesh();
 
     auto st = first_primitive(mesh, u0, u1, fh0, hhc, vhc);
-    if (st == PLOW_STATUS::EDGE) { hhc = mesh.opposite_halfedge_handle(hhc); }
+    if (st == RAY_STATUS::EDGE) { hhc = mesh.opposite_halfedge_handle(hhc); }
 
-    pp.set_halfedge_handle(hhc);
-    pp.set_vertex_handle(vhc);
-    pp.set_status(st);
-    pp.set_u0(u0);
-    pp.set_u1(u1);
+    rt.set_halfedge_handle(hhc);
+    rt.set_vertex_handle(vhc);
+    rt.set_status(st);
+    rt.set_u0(u0);
+    rt.set_u1(u1);
 }
 
-void init(PrimitivePlow &pp, const Fh &fh0, const Vec2 &u1)
+void init(RayTracer &rt, const Fh &fh0, const Vec2 &u1)
 {
-    const auto &mesh = pp.mesh();
+    const auto &mesh = rt.mesh();
     const auto u0 = centroid(mesh, fh0);
 
     for (Hh hh : mesh.fh_range(fh0))
-    if (intersection_info(mesh, u0, u1, hh) == PLOW_STATUS::MISS)
-    { pp.set_halfedge_handle(mesh.opposite_halfedge_handle(hh)); break; }
+    if (intersection_info(mesh, u0, u1, hh) == RAY_STATUS::MISS)
+    { rt.set_halfedge_handle(mesh.opposite_halfedge_handle(hh)); break; }
 
-    pp.set_status(PLOW_STATUS::EDGE);
-    pp.set_u0(u0);
-    pp.set_u1(u1);
+    rt.set_status(RAY_STATUS::EDGE);
+    rt.set_u0(u0);
+    rt.set_u1(u1);
 }
 
-void init(PrimitivePlow &pp, const Vh &vh0, const Vec2 &u1)
+void init(RayTracer &rt, const Vh &vh0, const Vec2 &u1)
 {
-    const auto &mesh = pp.mesh();
+    const auto &mesh = rt.mesh();
     const auto u0 = get_xy(mesh, vh0);
-    pp.set_status(PLOW_STATUS::VERT);
-    pp.set_vertex_handle(vh0);
-    pp.set_u0(u0);
-    pp.set_u1(u1);
+    rt.set_status(RAY_STATUS::VERT);
+    rt.set_vertex_handle(vh0);
+    rt.set_u0(u0);
+    rt.set_u1(u1);
 }
 
-void init(PrimitivePlow &pp, const Vh &vh0, const Vh &vh1)
+void init(RayTracer &rt, const Vh &vh0, const Vh &vh1)
 {
-    const auto &mesh = pp.mesh();
+    const auto &mesh = rt.mesh();
     const auto u0 = get_xy(mesh, vh0);
     const auto u1 = get_xy(mesh, vh1);
-    pp.set_status(PLOW_STATUS::VERT);
-    pp.set_vertex_handle(vh0);
-    pp.set_u0(u0);
-    pp.set_u1(u1);
+    rt.set_status(RAY_STATUS::VERT);
+    rt.set_vertex_handle(vh0);
+    rt.set_u0(u0);
+    rt.set_u1(u1);
 }
 
 Fh search_triangle_linear(const TriMesh &mesh, const Vec2 &u, const Fh &fh0)
 {
     if (is_inside(mesh, fh0, u)) return fh0;
 
-    PrimitivePlow pp(mesh);
+    RayTracer rt(mesh);
 
-    init(pp, fh0, u); // setup the plow
+    init(rt, fh0, u); // setup the plow
 
     const int max_n_iter = (int)mesh.n_edges(); int n_iter {};
 
-    for (pp.next(); n_iter < max_n_iter; pp.next(), ++n_iter)
+    for (rt.next(); n_iter < max_n_iter; rt.next(), ++n_iter)
     {
         // check if the target is reached
-        if (pp.status() == PLOW_STATUS::EDGE)
+        if (rt.status() == RAY_STATUS::EDGE)
         {
-            Fh fh = mesh.opposite_face_handle(pp.halfedge_handle());
+            Fh fh = mesh.opposite_face_handle(rt.halfedge_handle());
             if (fh.is_valid() && is_inside(mesh, fh, u)) return fh;
         }
-        else if (pp.status() == PLOW_STATUS::VERT)
+        else if (rt.status() == RAY_STATUS::VERT)
         {
-            for (Fh fh : mesh.vf_range(pp.vertex_handle()))
+            for (Fh fh : mesh.vf_range(rt.vertex_handle()))
             if (fh.is_valid() && is_inside(mesh, fh, u)) return fh;
         }
 
         // searching lost in vain, for some reasons
-        if (pp.status() == PLOW_STATUS::MISS) break;
+        if (rt.status() == RAY_STATUS::MISS) break;
     }
 
     return Fh {};

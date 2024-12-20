@@ -20,16 +20,16 @@ Fh fuzzy_search_triangle_boundary(const TriMesh&, const Vec2&, const double tol)
 Fh fuzzy_search_triangle_boundary(const TriMesh&, const Vec2&, const double tol);
 
 ////////////////////////////////////////////////////////////////
-/// Path search
+/// Ray tracer
 ////////////////////////////////////////////////////////////////
 
-enum class PLOW_STATUS: int { MISS, EDGE, VERT };
+enum class RAY_STATUS: int { MISS, EDGE, VERT };
 
-class PrimitivePlow
+class RayTracer
 {
 public:
 
-    PrimitivePlow(const TriMesh &_m): m_(_m), st_(PLOW_STATUS::MISS) {}
+    RayTracer(const TriMesh &_m): m_(_m), st_(RAY_STATUS::MISS) {}
 
     // current intersecting edge iff status is EDGE
     const Hh &halfedge_handle() const { return hh_; }
@@ -38,7 +38,7 @@ public:
     const Vh &vertex_handle() const { return vh_; }
 
     // status of last intersection test
-    PLOW_STATUS status() const { return st_; }
+    RAY_STATUS status() const { return st_; }
 
     // search for next intersecting primitive
     void next();
@@ -47,7 +47,7 @@ public:
 
     void set_halfedge_handle(const Hh &_hh) { hh_ = _hh; }
     void set_vertex_handle(const Vh &_vh) { vh_ = _vh; }
-    void set_status(PLOW_STATUS _st) { st_ = _st; }
+    void set_status(RAY_STATUS _st) { st_ = _st; }
     void set_u0(const Vec2 &_u) { u0_ = _u; }
     void set_u1(const Vec2 &_u) { u1_ = _u; }
     const TriMesh &mesh() const { return m_; }
@@ -58,7 +58,7 @@ protected:
     const TriMesh &m_;
 
     // status of intersection test
-    PLOW_STATUS st_;
+    RAY_STATUS st_;
 
     // primitive variant's edge
     Hh hh_;
@@ -70,12 +70,12 @@ protected:
     Vec2 u0_, u1_;
 };
 
-void init(PrimitivePlow&, const Vec2&, const Vec2&);
+void init(RayTracer&, const Vec2&, const Vec2&);
 
-void init(PrimitivePlow&, const Fh&, const Vec2&);
+void init(RayTracer&, const Fh&, const Vec2&);
 
-void init(PrimitivePlow&, const Vh&, const Vec2&);
+void init(RayTracer&, const Vh&, const Vec2&);
 
-void init(PrimitivePlow&, const Vh&, const Vh&);
+void init(RayTracer&, const Vh&, const Vh&);
 
 #endif

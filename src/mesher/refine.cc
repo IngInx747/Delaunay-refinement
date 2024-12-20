@@ -241,34 +241,34 @@ static Fh search_primitive(const TriMesh &mesh, const Vec2 &u1, const Fh &fh0, H
 {
     if (is_inside(mesh, fh0, u1)) return fh0;
 
-    PrimitivePlow pp(mesh);
+    RayTracer rt(mesh);
 
-    init(pp, fh0, u1); // setup the plow
+    init(rt, fh0, u1); // setup the plow
 
     const int max_n_iter = (int)mesh.n_edges(); int n_iter {};
 
-    for (pp.next(); n_iter < max_n_iter; pp.next(), ++n_iter)
+    for (rt.next(); n_iter < max_n_iter; rt.next(), ++n_iter)
     {
-        if (pp.status() == PLOW_STATUS::EDGE) // record segments
+        if (rt.status() == RAY_STATUS::EDGE) // record segments
         {
-            if (is_segment(mesh, pp.halfedge_handle()))
-            { hh = pp.halfedge_handle(); break; }
+            if (is_segment(mesh, rt.halfedge_handle()))
+            { hh = rt.halfedge_handle(); break; }
         }
 
         // check if the target is reached
-        if (pp.status() == PLOW_STATUS::EDGE)
+        if (rt.status() == RAY_STATUS::EDGE)
         {
-            Fh fh = mesh.opposite_face_handle(pp.halfedge_handle());
+            Fh fh = mesh.opposite_face_handle(rt.halfedge_handle());
             if (fh.is_valid() && is_inside(mesh, fh, u1)) return fh;
         }
-        else if (pp.status() == PLOW_STATUS::VERT)
+        else if (rt.status() == RAY_STATUS::VERT)
         {
-            for (Fh fh : mesh.vf_range(pp.vertex_handle()))
+            for (Fh fh : mesh.vf_range(rt.vertex_handle()))
             if (fh.is_valid() && is_inside(mesh, fh, u1)) return fh;
         }
 
         // searching lost in vain, for some reasons
-        if (pp.status() == PLOW_STATUS::MISS) break;
+        if (rt.status() == RAY_STATUS::MISS) break;
     }
 
     return Fh {};
